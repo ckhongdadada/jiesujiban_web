@@ -1,0 +1,1183 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>接诉即办 · 智能服务系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:        #0f1923;
+  --ink-soft:   #3a4553;
+  --ink-muted:  #7a8999;
+  --rule:       #d6dce4;
+  --rule-light: #edf0f4;
+  --paper:      #f8f9fb;
+  --white:      #ffffff;
+  --red:        #c0392b;
+  --red-light:  #fdf0ef;
+  --gold:       #b08a3e;
+  --gold-light: #fdf8ef;
+  --blue:       #1a4f8a;
+  --blue-light: #eef4fc;
+  --green:      #1a6b45;
+  --green-light:#eef7f2;
+  --mono:       'JetBrains Mono', monospace;
+  --serif:      'Noto Serif SC', serif;
+}
+
+body {
+  font-family: var(--serif);
+  background: var(--paper);
+  color: var(--ink);
+  min-height: 100vh;
+  line-height: 1.7;
+}
+
+/* ── Grid background texture ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--rule-light) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-light) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Header ── */
+header {
+  position: relative;
+  z-index: 10;
+  background: var(--white);
+  border-bottom: 2px solid var(--ink);
+  padding: 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 64px;
+}
+.header-seal {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--red);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.header-seal svg { width: 20px; height: 20px; fill: var(--red); }
+.header-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--ink);
+}
+.header-subtitle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-left: 2px;
+}
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--rule);
+  transition: background .4s;
+}
+.status-dot.ready { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+.status-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: .05em;
+}
+
+/* ── Main Layout ── */
+main {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 32px 80px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+/* ── Panel ── */
+.panel {
+  background: var(--white);
+  border: 1.5px solid var(--rule);
+  border-top: 3px solid var(--ink);
+  padding: 28px 32px;
+  position: relative;
+}
+.panel-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.panel-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule-light);
+}
+.panel-heading span {
+  display: inline-block;
+  width: 20px; height: 20px;
+  background: var(--ink);
+  color: var(--white);
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  text-align: center;
+  line-height: 20px;
+  margin-right: 8px;
+}
+
+/* ── Form fields ── */
+.field { margin-bottom: 18px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--ink-soft);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.field label .required {
+  color: var(--red);
+  margin-left: 2px;
+}
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  padding: 10px 14px;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color .2s;
+  resize: none;
+  appearance: none;
+}
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  border-color: var(--ink);
+  background: var(--white);
+}
+.field textarea { height: 110px; line-height: 1.6; }
+
+/* ── Tag selector ── */
+.tag-section {
+  margin-bottom: 12px;
+}
+.tag-section:last-child {
+  margin-bottom: 0;
+}
+.tag-row-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tag-grid.secondary {
+  gap: 6px;
+}
+.tag-grid.secondary .tag-btn {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+.tag-btn {
+  padding: 5px 12px;
+  border: 1.5px solid var(--rule);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: all .15s;
+  letter-spacing: .04em;
+}
+.tag-btn:hover { border-color: var(--ink-soft); color: var(--ink); }
+.tag-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--white);
+}
+
+/* ── Submit button ── */
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--ink);
+  color: var(--white);
+  border: none;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background .2s, transform .1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.submit-btn:hover:not(:disabled) { background: #1c2e40; }
+.submit-btn:active:not(:disabled) { transform: scale(.99); }
+.submit-btn:disabled { background: var(--ink-muted); cursor: not-allowed; }
+.submit-btn .spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: none;
+}
+.submit-btn.loading .spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Results panel ── */
+.result-section { display: none; }
+.result-section.visible { display: block; }
+
+/* Unit cards */
+.unit-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+.unit-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1.5px solid var(--rule);
+  background: var(--white);
+  cursor: pointer;
+  transition: all .15s;
+  position: relative;
+  overflow: hidden;
+}
+.unit-card:hover { border-color: var(--blue); }
+.unit-card.selected {
+  border-color: var(--blue);
+  background: var(--blue-light);
+}
+.unit-card.top-1 { border-top: 3px solid var(--gold); }
+.unit-rank {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  width: 20px;
+  flex-shrink: 0;
+}
+.unit-card.top-1 .unit-rank { color: var(--gold); }
+.unit-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}
+.unit-bar-wrap {
+  width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.unit-conf {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.unit-bar {
+  width: 80px;
+  height: 3px;
+  background: var(--rule-light);
+}
+.unit-bar-fill {
+  height: 100%;
+  background: var(--blue);
+  transition: width .6s cubic-bezier(.4,0,.2,1);
+}
+.unit-card.top-1 .unit-bar-fill { background: var(--gold); }
+.unit-regen-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--blue);
+  margin-bottom: 12px;
+  opacity: .8;
+}
+
+/* Reply output */
+.reply-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.reply-box {
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-left: 3px solid var(--ink);
+  padding: 18px 20px;
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--ink-soft);
+  min-height: 80px;
+  white-space: pre-wrap;
+  position: relative;
+}
+.reply-box.generating::after {
+  content: '▌';
+  animation: blink .6s step-end infinite;
+  color: var(--ink);
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.reply-unit-badge {
+  display: inline-block;
+  background: var(--gold-light);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  letter-spacing: .05em;
+  margin-bottom: 10px;
+}
+
+.copy-btn {
+  margin-top: 12px;
+  padding: 8px 18px;
+  border: 1.5px solid var(--rule);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  letter-spacing: .06em;
+  transition: all .15s;
+}
+.copy-btn:hover { border-color: var(--ink); color: var(--ink); }
+.copy-btn.copied { border-color: var(--green); color: var(--green); }
+
+/* ── Feedback ── */
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.feedback-text {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-right: 8px;
+}
+.feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1.5px solid var(--rule);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: .06em;
+  transition: all .15s;
+}
+.feedback-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.feedback-btn:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.feedback-btn.good:hover,
+.feedback-btn.good.selected {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-light);
+}
+.feedback-btn.bad:hover,
+.feedback-btn.bad.selected {
+  border-color: var(--red);
+  color: var(--red);
+  background: var(--red-light);
+}
+.feedback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.feedback-success {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--green-light);
+  border: 1.5px solid var(--green);
+  color: var(--green);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+/* ── Error ── */
+.error-box {
+  display: none;
+  padding: 12px 16px;
+  background: var(--red-light);
+  border: 1.5px solid var(--red);
+  color: var(--red);
+  font-size: 13px;
+  margin-top: 12px;
+  font-family: var(--mono);
+}
+.error-box.visible { display: block; }
+
+/* ── Empty state ── */
+.empty-state {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--ink-muted);
+}
+.empty-state .icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: .4;
+}
+.empty-state p { font-size: 13px; font-family: var(--mono); letter-spacing: .04em; }
+
+/* ── RAG Section ── */
+.rag-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule-light);
+}
+.result-block {
+  margin-bottom: 24px;
+}
+.result-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-family: var(--mono);
+  background: var(--paper);
+  border: 1px dashed var(--rule);
+}
+.location-box {
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  padding: 12px 16px;
+  font-size: 14px;
+  min-height: 44px;
+}
+.location-box .district {
+  font-weight: 600;
+  color: var(--ink);
+}
+.location-box .method {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-left: 8px;
+}
+.location-empty {
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.custom-unit-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.custom-unit-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid var(--rule);
+  background: var(--paper);
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color .2s;
+}
+.custom-unit-input:focus {
+  border-color: var(--ink);
+  background: var(--white);
+}
+.custom-unit-input::placeholder {
+  color: var(--ink-muted);
+}
+.custom-unit-btn {
+  padding: 10px 16px;
+  background: var(--white);
+  border: 1.5px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  letter-spacing: .04em;
+}
+.custom-unit-btn:hover {
+  background: var(--ink);
+  color: var(--white);
+}
+.custom-unit-btn:disabled {
+  background: var(--rule-light);
+  border-color: var(--rule);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+.rag-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rag-label .count {
+  background: var(--blue-light);
+  color: var(--blue);
+  padding: 2px 8px;
+  font-size: 10px;
+}
+.rag-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rag-card {
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  padding: 14px 16px;
+  transition: all .15s;
+}
+.rag-card:hover {
+  border-color: var(--blue);
+  background: var(--white);
+}
+.rag-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rag-card-icon {
+  width: 24px;
+  height: 24px;
+  background: var(--gold-light);
+  border: 1px solid var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--gold);
+}
+.rag-card-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.rag-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.rag-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--white);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+.rag-tag.type-policy { background: var(--blue-light); border-color: var(--blue); color: var(--blue); }
+.rag-tag.type-case { background: var(--green-light); border-color: var(--green); color: var(--green); }
+.rag-tag.district { background: var(--gold-light); border-color: var(--gold); color: var(--gold); }
+.rag-card-snippet {
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rag-card-score {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  margin-top: 6px;
+}
+.rag-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-family: var(--mono);
+  background: var(--paper);
+  border: 1px dashed var(--rule);
+}
+
+/* ── Footer ── */
+footer {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 24px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  letter-spacing: .06em;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  main { grid-template-columns: 1fr; padding: 24px 16px 60px; }
+  header { padding: 0 20px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-seal">
+    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+  </div>
+  <div>
+    <div class="header-title">接诉即办智能服务系统</div>
+    <div class="header-subtitle">Intelligent Complaint Handling System</div>
+  </div>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-label" id="statusLabel">检测中...</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── 左侧：输入表单 ── -->
+  <div class="panel">
+    <div class="panel-label">Step 01</div>
+    <div class="panel-heading"><span>入</span>留言信息录入</div>
+
+    <div class="field">
+      <label>留言标签</label>
+      <div class="tag-section">
+        <div class="tag-row-label">一级标签</div>
+        <div class="tag-grid" id="primaryTagGrid">
+          <button class="tag-btn active" data-val="投诉/求助" onclick="selectPrimaryTag(this)">投诉/求助</button>
+          <button class="tag-btn" data-val="建言" onclick="selectPrimaryTag(this)">建言</button>
+          <button class="tag-btn" data-val="咨询" onclick="selectPrimaryTag(this)">咨询</button>
+        </div>
+      </div>
+      <div class="tag-section">
+        <div class="tag-row-label">二级标签</div>
+        <div class="tag-grid secondary" id="secondaryTagGrid">
+          <button class="tag-btn" data-val="交通" onclick="selectSecondaryTag(this)">交通</button>
+          <button class="tag-btn" data-val="城建" onclick="selectSecondaryTag(this)">城建</button>
+          <button class="tag-btn" data-val="医疗" onclick="selectSecondaryTag(this)">医疗</button>
+          <button class="tag-btn" data-val="教育" onclick="selectSecondaryTag(this)">教育</button>
+          <button class="tag-btn" data-val="就业" onclick="selectSecondaryTag(this)">就业</button>
+          <button class="tag-btn" data-val="政务" onclick="selectSecondaryTag(this)">政务</button>
+          <button class="tag-btn" data-val="治安" onclick="selectSecondaryTag(this)">治安</button>
+          <button class="tag-btn" data-val="环保" onclick="selectSecondaryTag(this)">环保</button>
+          <button class="tag-btn" data-val="金融" onclick="selectSecondaryTag(this)">金融</button>
+          <button class="tag-btn" data-val="企业" onclick="selectSecondaryTag(this)">企业</button>
+          <button class="tag-btn" data-val="三农" onclick="selectSecondaryTag(this)">三农</button>
+          <button class="tag-btn" data-val="文娱" onclick="selectSecondaryTag(this)">文娱</button>
+          <button class="tag-btn" data-val="旅游" onclick="selectSecondaryTag(this)">旅游</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>留言标题 <span class="required">*</span></label>
+      <input type="text" id="titleInput" placeholder="请输入留言标题…" maxlength="100">
+    </div>
+
+    <div class="field">
+      <label>留言正文 <span class="required">*</span></label>
+      <textarea id="bodyInput" placeholder="请输入完整的留言正文内容，内容越详细，预测与生成结果越准确…"></textarea>
+    </div>
+
+    <button class="submit-btn" id="submitBtn" onclick="handleSubmit()">
+      <div class="spinner"></div>
+      <span id="submitText">智能分析 · 生成回复</span>
+    </button>
+
+    <div class="error-box" id="errorBox"></div>
+  </div>
+
+  <!-- ── 右侧：结果展示 ── -->
+  <div class="panel">
+    <div class="panel-label">Step 02</div>
+    <div class="panel-heading"><span>出</span>智能分析结果</div>
+
+    <div class="result-block">
+      <div class="reply-label">所属地区</div>
+      <div class="location-box" id="locationBox">
+        <span class="location-empty">等待分析...</span>
+      </div>
+    </div>
+
+    <div class="result-block">
+      <div class="reply-label">预测回复单位（点击切换或手动输入）</div>
+      <div class="unit-cards" id="unitCards">
+        <div class="result-empty">等待分析...</div>
+      </div>
+      <div class="unit-regen-hint" id="regenHint" style="display:none">
+        ↑ 点击其他候选单位将以该单位重新生成回复
+      </div>
+      <div class="custom-unit-row">
+        <input type="text" id="customUnitInput" placeholder="手动输入回复单位..." class="custom-unit-input">
+        <button class="custom-unit-btn" onclick="useCustomUnit()">使用此单位生成</button>
+      </div>
+    </div>
+
+    <div class="result-block">
+      <div class="reply-label">智能生成回复正文</div>
+      <div class="reply-unit-badge" id="replyUnitBadge" style="display:none">—</div>
+      <div class="reply-box" id="replyBox">
+        <span class="result-empty">等待分析...</span>
+      </div>
+      <button class="copy-btn" id="copyBtn" onclick="copyReply()" style="display:none">复制回复内容</button>
+    </div>
+
+    <div class="result-block">
+      <div class="rag-label">
+        参考政策与案例
+        <span class="count" id="ragCount" style="display:none">0</span>
+      </div>
+      <div class="rag-cards" id="ragCards">
+        <div class="result-empty">等待分析...</div>
+      </div>
+    </div>
+
+    <div class="result-block" id="feedbackBlock" style="display:none">
+      <div class="reply-label">生成结果评价</div>
+      <div class="feedback-row">
+        <span class="feedback-text">这个回复对您有帮助吗？</span>
+        <button class="feedback-btn good" id="feedbackGood" onclick="submitFeedback(true)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+          </svg>
+          有用
+        </button>
+        <button class="feedback-btn bad" id="feedbackBad" onclick="submitFeedback(false)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"></path>
+          </svg>
+          无用
+        </button>
+      </div>
+      <div class="feedback-success" id="feedbackSuccess" style="display:none">
+        感谢您的反馈！我们会持续改进。
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<footer>接诉即办智能服务系统 · 仅供辅助参考，最终回复以人工审核为准</footer>
+
+<script>
+let primaryTag = '投诉/求助';
+let secondaryTag = '';
+let currentUnits = [];
+let selectedUnitIdx = 0;
+let lastInput = {};
+let latestGenInstance = 0;
+
+function selectPrimaryTag(el) {
+  document.querySelectorAll('#primaryTagGrid .tag-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  primaryTag = el.dataset.val;
+}
+
+function selectSecondaryTag(el) {
+  document.querySelectorAll('#secondaryTagGrid .tag-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  secondaryTag = el.dataset.val;
+}
+
+function getFullTag() {
+  if (secondaryTag) {
+    return `${primaryTag}-${secondaryTag}`;
+  }
+  return primaryTag;
+}
+
+async function handleSubmit() {
+  const title = document.getElementById('titleInput').value.trim();
+  const body  = document.getElementById('bodyInput').value.trim();
+
+  if (!title) {
+    showError('留言标题不能为空，请填写后提交');
+    return;
+  }
+  if (!body) {
+    showError('留言正文不能为空，请填写后提交');
+    return;
+  }
+
+  setLoading(true);
+  clearError();
+
+  lastInput = { tag: getFullTag(), title, body };
+
+  const currentInstance = ++latestGenInstance;
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(lastInput)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (latestGenInstance !== currentInstance) return; // Prevent race conditions
+    currentUnits = data.units;
+    selectedUnitIdx = 0;
+
+    renderLocation(data.location);
+    renderUnits(currentUnits, 0);
+    renderReply(data.reply, currentUnits[0]?.unit || '');
+    renderRag(data.retrieval || []);
+    showFeedbackSection();
+
+  } catch (e) {
+    if (latestGenInstance === currentInstance) {
+      showError('请求失败：' + e.message);
+    }
+  } finally {
+    if (latestGenInstance === currentInstance) setLoading(false);
+  }
+}
+
+async function selectUnit(idx) {
+  if (idx === selectedUnitIdx) return;
+  selectedUnitIdx = idx;
+
+  // 高亮选中
+  document.querySelectorAll('.unit-card').forEach((c, i) => {
+    c.classList.toggle('selected', i === idx);
+  });
+
+  // 以选中单位重新生成回复
+  const unit = currentUnits[idx].unit;
+  document.getElementById('replyBox').textContent = '';
+  document.getElementById('replyBox').classList.add('generating');
+  document.getElementById('replyUnitBadge').textContent = unit;
+  document.getElementById('copyBtn').classList.remove('copied');
+  document.getElementById('copyBtn').textContent = '复制回复内容';
+
+  const currentInstance = ++latestGenInstance;
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...lastInput, _force_unit: unit })
+    });
+    const data = await res.json();
+    if (latestGenInstance !== currentInstance) return;
+    renderReply(data.reply, unit);
+    renderRag(data.retrieval || []);
+    showFeedbackSection();
+  } catch(e) {
+    if (latestGenInstance === currentInstance) {
+      document.getElementById('replyBox').textContent = '生成失败，请重试';
+      document.getElementById('replyBox').classList.remove('generating');
+    }
+  }
+}
+
+async function useCustomUnit() {
+  const customUnit = document.getElementById('customUnitInput').value.trim();
+  if (!customUnit) {
+    showError('请输入回复单位');
+    return;
+  }
+  if (!lastInput.body) {
+    showError('请先提交留言信息');
+    return;
+  }
+
+  document.querySelectorAll('.unit-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('replyBox').textContent = '';
+  document.getElementById('replyBox').classList.add('generating');
+  document.getElementById('replyUnitBadge').textContent = customUnit;
+  document.getElementById('replyUnitBadge').style.display = 'inline-block';
+  document.getElementById('copyBtn').style.display = 'none';
+
+  const currentInstance = ++latestGenInstance;
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...lastInput, _force_unit: customUnit })
+    });
+    const data = await res.json();
+    if (latestGenInstance !== currentInstance) return;
+    renderReply(data.reply, customUnit);
+    renderRag(data.retrieval || []);
+    showFeedbackSection();
+  } catch(e) {
+    if (latestGenInstance === currentInstance) {
+      document.getElementById('replyBox').textContent = '生成失败，请重试';
+      document.getElementById('replyBox').classList.remove('generating');
+    }
+  }
+}
+
+function renderUnits(units, activeIdx) {
+  const container = document.getElementById('unitCards');
+  container.innerHTML = '';
+  units.forEach((u, i) => {
+    const card = document.createElement('div');
+    card.className = 'unit-card' + (i === 0 ? ' top-1' : '') + (i === activeIdx ? ' selected' : '');
+    card.onclick = () => selectUnit(i);
+    card.innerHTML = `
+      <div class="unit-rank">#${i+1}</div>
+      <div class="unit-name">${u.unit}</div>
+      <div class="unit-bar-wrap">
+        <div class="unit-conf">${u.confidence}%</div>
+        <div class="unit-bar">
+          <div class="unit-bar-fill" style="width:0%"></div>
+        </div>
+      </div>`;
+    container.appendChild(card);
+    setTimeout(() => {
+      card.querySelector('.unit-bar-fill').style.width = u.confidence + '%';
+    }, 80 + i * 60);
+  });
+  if (units.length > 1) {
+    document.getElementById('regenHint').style.display = 'block';
+  }
+}
+
+function renderLocation(location) {
+  const box = document.getElementById('locationBox');
+  if (!location || !location.district) {
+    box.innerHTML = '<span class="location-empty">未识别到具体区域</span>';
+    return;
+  }
+  const method = location.method || '未知';
+  const confidence = location.confidence ? ` (${(location.confidence * 100).toFixed(0)}%)` : '';
+  box.innerHTML = `<span class="district">${location.district}</span><span class="method">${method}${confidence}</span>`;
+}
+
+function renderReply(text, unit) {
+  const box = document.getElementById('replyBox');
+  const badge = document.getElementById('replyUnitBadge');
+  const copyBtn = document.getElementById('copyBtn');
+  
+  box.classList.remove('generating');
+  box.textContent = text;
+  
+  if (unit) {
+    badge.textContent = unit;
+    badge.style.display = 'inline-block';
+  }
+  copyBtn.style.display = 'inline-block';
+  copyBtn.classList.remove('copied');
+  copyBtn.textContent = '复制回复内容';
+}
+
+function renderRag(items) {
+  const container = document.getElementById('ragCards');
+  const countEl = document.getElementById('ragCount');
+  
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div class="result-empty">未找到相关政策或案例</div>';
+    countEl.style.display = 'none';
+    return;
+  }
+  
+  countEl.style.display = 'inline-block';
+  countEl.textContent = items.length;
+  container.innerHTML = '';
+  
+  items.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'rag-card';
+    
+    const docType = item.doc_type || '参考材料';
+    const typeClass = docType.includes('政策') ? 'type-policy' : 
+                      docType.includes('案例') ? 'type-case' : '';
+    
+    card.innerHTML = `
+      <div class="rag-card-header">
+        <div class="rag-card-icon">${idx + 1}</div>
+        <div class="rag-card-title">${item.title || '未命名材料'}</div>
+      </div>
+      <div class="rag-card-meta">
+        <span class="rag-tag ${typeClass}">${docType}</span>
+        ${item.district ? `<span class="rag-tag district">${item.district}</span>` : ''}
+        ${item.source ? `<span class="rag-tag">${item.source}</span>` : ''}
+      </div>
+      <div class="rag-card-snippet">${item.snippet || '无摘要'}</div>
+      <div class="rag-card-score">相关度: ${(item.score * 100).toFixed(1)}%</div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function copyReply() {
+  const text = document.getElementById('replyBox').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = '已复制 ✓';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '复制回复内容';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+// 显示反馈区域
+function showFeedbackSection() {
+  document.getElementById('feedbackBlock').style.display = 'block';
+  document.getElementById('feedbackGood').classList.remove('selected');
+  document.getElementById('feedbackBad').classList.remove('selected');
+  document.getElementById('feedbackGood').disabled = false;
+  document.getElementById('feedbackBad').disabled = false;
+  document.getElementById('feedbackSuccess').style.display = 'none';
+}
+
+// 提交反馈
+async function submitFeedback(isHelpful) {
+  const goodBtn = document.getElementById('feedbackGood');
+  const badBtn = document.getElementById('feedbackBad');
+  
+  goodBtn.disabled = true;
+  badBtn.disabled = true;
+  
+  if (isHelpful) {
+    goodBtn.classList.add('selected');
+  } else {
+    badBtn.classList.add('selected');
+  }
+  
+  const feedbackData = {
+    tag: lastInput.tag || '',
+    title: lastInput.title || '',
+    body: lastInput.body || '',
+    reply: document.getElementById('replyBox').textContent,
+    unit: document.getElementById('replyUnitBadge').textContent,
+    is_helpful: isHelpful,
+    timestamp: new Date().toISOString()
+  };
+  
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(feedbackData)
+    });
+    
+    if (res.ok) {
+      document.getElementById('feedbackSuccess').style.display = 'block';
+    }
+  } catch (e) {
+    console.error('反馈提交失败:', e);
+  }
+}
+
+function setLoading(on) {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+  document.getElementById('submitText').textContent = on ? '正在分析…' : '智能分析 · 生成回复';
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+function clearError() {
+  document.getElementById('errorBox').classList.remove('visible');
+}
+
+// 健康检测
+async function checkHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const d = await r.json();
+    const ready = d.classifier_ready && d.generator_ready;
+    const dot   = document.getElementById('statusDot');
+    const label = document.getElementById('statusLabel');
+    dot.classList.add('ready'); // Indicate server is reachable
+    if (ready) {
+      label.textContent = '模型已就绪 · ' + d.device.toUpperCase();
+    } else {
+      label.textContent = '服务在线 (首次分析触发加载)';
+    }
+  } catch {
+    document.getElementById('statusLabel').textContent = '服务未启动';
+    setTimeout(checkHealth, 5000);
+  }
+}
+checkHealth();
+</script>
+</body>
+</html>
