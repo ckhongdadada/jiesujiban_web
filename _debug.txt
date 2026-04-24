@@ -1,0 +1,4 @@
+import ok
+optuna ok: 4.8.0
+training imports ok
+parse_args ok: n_trials=50, output_dir=C:\Users\28414\PycharmProjects\接诉即办项目\data\reports\training\optuna

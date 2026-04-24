@@ -109,7 +109,13 @@ class ModelManager:
         # 预加载RAG检索器
         try:
             from enhancements.rag_retriever_bge import RAGRetriever
-            rag_retriever = RAGRetriever()
+            rag_retriever = RAGRetriever(
+                backend=config.get("rag_backend", "hybrid"),
+                enable_query_rewrite=config.get("rag_enable_query_rewrite", True),
+                multi_query_count=config.get("rag_multi_query_count", 4),
+                dense_weight=config.get("rag_dense_weight", 0.68),
+                sparse_weight=config.get("rag_sparse_weight", 0.32),
+            )
             self._preloaded_models['rag'] = rag_retriever
             print("[模型管理] RAG检索器预加载完成")
         except Exception as e:

@@ -54,6 +54,7 @@ final_model*/
 # Logs
 *.log
 logs/
+test_logs/
 
 # Environment variables
 .env

@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from enhancements.runtime_config import load_runtime_config
 from enhancements.training_acceptance import build_acceptance_report, write_acceptance_report
+from enhancements.data_paths import get_training_reports_dir
 
 TRAINING_DIR = PROJECT_ROOT / "training"
 REQUIRED_CLASSIFIER_COLUMNS = ["留言标签", "留言标题", "留言正文", "官方回复单位"]
@@ -94,7 +95,7 @@ def main() -> int:
             "classifier_output_dir": inspect_directory(r"C:\Users\28414\PycharmProjects\接诉即办项目\final_model_fgm"),
             "generator_base_model": inspect_directory(config.generator_base_model),
             "generator_output_dir": inspect_directory(config.generator_lora_dir),
-            "report_dir": inspect_directory(str(PROJECT_ROOT / "data" / "training_reports")),
+            "report_dir": inspect_directory(str(get_training_reports_dir())),
         },
         "data": {
             "classifier": inspect_excel(classifier_data_path, REQUIRED_CLASSIFIER_COLUMNS),

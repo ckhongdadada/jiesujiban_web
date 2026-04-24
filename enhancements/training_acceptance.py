@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from enhancements.model_artifacts import inspect_classifier_artifacts, inspect_generator_artifacts
+from enhancements.data_paths import get_training_reports_dir
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_REPORT_DIR = PROJECT_ROOT / "data" / "training_reports"
+DEFAULT_REPORT_DIR = get_training_reports_dir()
 
 
 def build_acceptance_report(

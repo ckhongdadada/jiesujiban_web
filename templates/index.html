@@ -458,6 +458,211 @@ main {
   font-size: 12px;
   font-family: var(--mono);
 }
+.feedback-reason-row {
+  margin-top: 12px;
+}
+.feedback-reason-row label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+}
+.feedback-reason {
+  width: 100%;
+  min-height: 68px;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  padding: 10px 12px;
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--ink);
+  resize: vertical;
+  outline: none;
+}
+.feedback-reason:focus {
+  border-color: var(--ink);
+  background: var(--white);
+}
+.feedback-analysis-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-left: 3px solid var(--blue);
+}
+.feedback-analysis-box.high {
+  border-left-color: var(--red);
+  background: var(--red-light);
+}
+.feedback-analysis-box.medium {
+  border-left-color: var(--gold);
+  background: var(--gold-light);
+}
+.feedback-analysis-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+.feedback-analysis-summary {
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.feedback-analysis-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.feedback-analysis-list li + li {
+  margin-top: 6px;
+}
+.kg-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.kg-review-toolbar input,
+.kg-review-toolbar select,
+.kg-review-notes {
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.kg-review-toolbar input,
+.kg-review-toolbar select {
+  min-width: 160px;
+}
+.kg-review-notes {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+.kg-review-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.kg-review-btn {
+  border: 1px solid var(--ink);
+  background: var(--white);
+  color: var(--ink);
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: all .18s ease;
+}
+.kg-review-btn:hover {
+  background: var(--ink);
+  color: var(--white);
+}
+.kg-review-btn.approve {
+  border-color: var(--green);
+  color: var(--green);
+}
+.kg-review-btn.approve:hover {
+  background: var(--green);
+  color: var(--white);
+}
+.kg-review-btn.reject {
+  border-color: var(--red);
+  color: var(--red);
+}
+.kg-review-btn.reject:hover {
+  background: var(--red);
+  color: var(--white);
+}
+.kg-review-list {
+  display: grid;
+  gap: 12px;
+}
+.kg-review-item {
+  border: 1px solid var(--line);
+  background: var(--white);
+  padding: 14px 16px;
+}
+.kg-review-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.kg-review-item-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.kg-review-item-meta {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+.kg-review-item-context {
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-left: 3px solid var(--line);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.kg-review-status {
+  font-size: 12px;
+  color: var(--blue);
+}
+.verification-box {
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-left: 3px solid var(--blue);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.verification-box.needs-review {
+  border-left-color: var(--red);
+  background: var(--red-light);
+  border-color: #efb4ad;
+  color: var(--red);
+}
+.verification-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.verification-item {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--white);
+  border: 1px solid var(--rule-light);
+  padding: 8px 10px;
+}
+.verification-item.high {
+  border-color: #efb4ad;
+  background: #fff4f3;
+  color: var(--red);
+}
+.processing-time {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+}
 
 /* ── Error ── */
 .error-box {
@@ -795,6 +1000,13 @@ footer {
       <button class="copy-btn" id="copyBtn" onclick="copyReply()" style="display:none">复制回复内容</button>
     </div>
 
+    <div class="result-block" id="verificationBlock" style="display:none">
+      <div class="reply-label">事实校验与风险提示</div>
+      <div class="verification-box" id="verificationSummary"></div>
+      <div class="verification-list" id="verificationWarnings"></div>
+      <div class="processing-time" id="processingTimeHint"></div>
+    </div>
+
     <div class="result-block">
       <div class="rag-label">
         参考政策与案例
@@ -822,8 +1034,44 @@ footer {
           无用
         </button>
       </div>
+      <div class="feedback-reason-row">
+        <label for="referenceReplyInput">若判定为无用，可填写标准回复用于自动抽取错误</label>
+        <textarea id="referenceReplyInput" class="feedback-reason" placeholder="粘贴人工标准回复或参考答复，系统会自动对比生成回复与标准回复之间的差异"></textarea>
+      </div>
+      <div class="feedback-row">
+        <span class="feedback-text">RAG 筛选语料有帮助吗？</span>
+        <button class="feedback-btn good" id="ragFeedbackGood" onclick="submitRagFeedback(true)">有用</button>
+        <button class="feedback-btn bad" id="ragFeedbackBad" onclick="submitRagFeedback(false)">无用</button>
+      </div>
+      <div class="feedback-reason-row">
+        <label for="ragFeedbackReason">原因（写入 comments）</label>
+        <textarea id="ragFeedbackReason" class="feedback-reason" placeholder="例如：命中的政策很准确 / 案例不相关 / 语料过旧 / 地区不匹配"></textarea>
+      </div>
       <div class="feedback-success" id="feedbackSuccess" style="display:none">
         感谢您的反馈！我们会持续改进。
+      </div>
+      <div class="feedback-analysis-box" id="feedbackAnalysisBox" style="display:none">
+        <div class="feedback-analysis-title">自动错误分析</div>
+        <div class="feedback-analysis-summary" id="feedbackAnalysisSummary"></div>
+        <ul class="feedback-analysis-list" id="feedbackAnalysisList"></ul>
+      </div>
+    </div>
+
+    <div class="result-block" id="kgReviewBlock">
+      <div class="reply-label">知识图谱事实审核</div>
+      <div class="kg-review-toolbar">
+        <input type="text" id="kgReviewerInput" placeholder="审核人（默认 web-ui）">
+        <select id="kgReviewStatusFilter">
+          <option value="pending">待审核</option>
+          <option value="approved">已通过</option>
+          <option value="rejected">已拒绝</option>
+        </select>
+        <button class="kg-review-btn" onclick="refreshKnowledgeGraphReviewCandidates()">刷新候选事实</button>
+      </div>
+      <textarea id="kgReviewNotesInput" class="kg-review-notes" placeholder="审核备注（可选，例如：证据充分 / 证据不足 / 表述过泛）"></textarea>
+      <div class="processing-time" id="kgReviewHint">这里会显示等待入图谱的结构化事实，只有审核通过后才会真正写入知识图谱。</div>
+      <div class="kg-review-list" id="kgReviewList">
+        <div class="result-empty">点击“刷新候选事实”加载待审核条目...</div>
       </div>
     </div>
 
@@ -840,6 +1088,13 @@ let currentUnits = [];
 let selectedUnitIdx = 0;
 let lastInput = {};
 let latestGenInstance = 0;
+let lastLocation = null;
+let lastRetrieval = [];
+let lastVerification = null;
+let lastNeedsReview = false;
+let lastProcessingTime = null;
+let lastReplyFeedbackId = null;
+let lastKgReviewCandidates = [];
 
 function selectPrimaryTag(el) {
   document.querySelectorAll('#primaryTagGrid .tag-btn').forEach(b => b.classList.remove('active'));
@@ -895,11 +1150,17 @@ async function handleSubmit() {
     if (latestGenInstance !== currentInstance) return; // Prevent race conditions
     currentUnits = data.units;
     selectedUnitIdx = 0;
+    lastLocation = data.location || null;
+    lastRetrieval = data.retrieval || [];
+    lastVerification = data.verification || null;
+    lastNeedsReview = !!data.needs_review;
+    lastProcessingTime = data.processing_time || null;
 
     renderLocation(data.location);
     renderUnits(currentUnits, 0);
     renderReply(data.reply, currentUnits[0]?.unit || '');
     renderRag(data.retrieval || []);
+    renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
 
   } catch (e) {
@@ -937,8 +1198,14 @@ async function selectUnit(idx) {
     });
     const data = await res.json();
     if (latestGenInstance !== currentInstance) return;
+    lastLocation = data.location || null;
+    lastRetrieval = data.retrieval || [];
+    lastVerification = data.verification || null;
+    lastNeedsReview = !!data.needs_review;
+    lastProcessingTime = data.processing_time || null;
     renderReply(data.reply, unit);
     renderRag(data.retrieval || []);
+    renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
   } catch(e) {
     if (latestGenInstance === currentInstance) {
@@ -975,8 +1242,14 @@ async function useCustomUnit() {
     });
     const data = await res.json();
     if (latestGenInstance !== currentInstance) return;
+    lastLocation = data.location || null;
+    lastRetrieval = data.retrieval || [];
+    lastVerification = data.verification || null;
+    lastNeedsReview = !!data.needs_review;
+    lastProcessingTime = data.processing_time || null;
     renderReply(data.reply, customUnit);
     renderRag(data.retrieval || []);
+    renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
   } catch(e) {
     if (latestGenInstance === currentInstance) {
@@ -1079,6 +1352,50 @@ function renderRag(items) {
   });
 }
 
+function getTotalProcessingSeconds(processingTime) {
+  if (typeof processingTime === 'number') return processingTime;
+  if (processingTime && typeof processingTime.total === 'number') return processingTime.total;
+  return 0;
+}
+
+function renderVerification(verification, needsReview, processingTime) {
+  const block = document.getElementById('verificationBlock');
+  const summaryEl = document.getElementById('verificationSummary');
+  const warningsEl = document.getElementById('verificationWarnings');
+  const timeEl = document.getElementById('processingTimeHint');
+
+  block.style.display = 'block';
+  warningsEl.innerHTML = '';
+
+  if (needsReview) {
+    summaryEl.classList.add('needs-review');
+    const summary = verification?.summary || '检测到潜在风险，建议人工复核后再使用该回复。';
+    summaryEl.textContent = `需复核：${summary}`;
+  } else {
+    summaryEl.classList.remove('needs-review');
+    const summary = verification?.summary || '未发现明显风险，可作为办理参考。';
+    summaryEl.textContent = summary;
+  }
+
+  const warnings = verification?.warnings || [];
+  warnings.slice(0, 5).forEach((w, idx) => {
+    const item = document.createElement('div');
+    const severity = (w.severity || '').toLowerCase();
+    item.className = 'verification-item' + (severity === 'high' ? ' high' : '');
+    const label = w.warning_type || `warning_${idx + 1}`;
+    const msg = w.message || '发现潜在问题';
+    item.textContent = `[${label}] ${msg}`;
+    warningsEl.appendChild(item);
+  });
+
+  if (warnings.length === 0) {
+    warningsEl.innerHTML = '<div class="verification-item">未返回告警明细。</div>';
+  }
+
+  const totalSec = getTotalProcessingSeconds(processingTime);
+  timeEl.textContent = totalSec > 0 ? `本次总耗时: ${totalSec.toFixed(3)}s` : '';
+}
+
 function copyReply() {
   const text = document.getElementById('replyBox').textContent;
   navigator.clipboard.writeText(text).then(() => {
@@ -1099,13 +1416,165 @@ function showFeedbackSection() {
   document.getElementById('feedbackBad').classList.remove('selected');
   document.getElementById('feedbackGood').disabled = false;
   document.getElementById('feedbackBad').disabled = false;
+  document.getElementById('ragFeedbackGood').classList.remove('selected');
+  document.getElementById('ragFeedbackBad').classList.remove('selected');
+  document.getElementById('ragFeedbackGood').disabled = false;
+  document.getElementById('ragFeedbackBad').disabled = false;
+  document.getElementById('ragFeedbackReason').value = '';
+  document.getElementById('referenceReplyInput').value = '';
   document.getElementById('feedbackSuccess').style.display = 'none';
+  document.getElementById('feedbackAnalysisBox').style.display = 'none';
+  document.getElementById('feedbackAnalysisBox').className = 'feedback-analysis-box';
+  document.getElementById('feedbackAnalysisSummary').textContent = '';
+  document.getElementById('feedbackAnalysisList').innerHTML = '';
+  lastReplyFeedbackId = null;
+}
+
+function renderReplyErrorAnalysis(analysis) {
+  const box = document.getElementById('feedbackAnalysisBox');
+  const summary = document.getElementById('feedbackAnalysisSummary');
+  const list = document.getElementById('feedbackAnalysisList');
+
+  if (!analysis) {
+    box.style.display = 'none';
+    summary.textContent = '';
+    list.innerHTML = '';
+    box.className = 'feedback-analysis-box';
+    return;
+  }
+
+  box.style.display = 'block';
+  box.className = `feedback-analysis-box ${analysis.severity || ''}`.trim();
+  summary.textContent = analysis.summary || '已完成自动错误分析。';
+  list.innerHTML = '';
+
+  const errors = Array.isArray(analysis.errors) ? analysis.errors : [];
+  if (!errors.length) {
+    const li = document.createElement('li');
+    li.textContent = '未检测到明显结构化错误。';
+    list.appendChild(li);
+    return;
+  }
+
+  errors.slice(0, 6).forEach(item => {
+    const li = document.createElement('li');
+    const generated = item.generated_value ? ` 生成=${item.generated_value}` : '';
+    const reference = item.reference_value ? ` 参考=${item.reference_value}` : '';
+    li.textContent = `${item.error_type || 'error'}：${item.message || ''}${generated}${reference}`;
+    list.appendChild(li);
+  });
+}
+
+async function loadReplyErrorAnalysis(feedbackId) {
+  if (!feedbackId) return;
+  try {
+    const res = await fetch(`/api/feedback/error-analysis/${feedbackId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.analysis) {
+      renderReplyErrorAnalysis(data.analysis);
+    }
+  } catch (e) {
+    console.error('加载错误分析失败:', e);
+  }
 }
 
 // 提交反馈
+function renderKnowledgeGraphReviewCandidates(candidates) {
+  const list = document.getElementById('kgReviewList');
+  lastKgReviewCandidates = Array.isArray(candidates) ? candidates : [];
+
+  if (!lastKgReviewCandidates.length) {
+    list.innerHTML = '<div class="result-empty">当前没有符合条件的候选事实。</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  lastKgReviewCandidates.forEach(item => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'kg-review-item';
+    const contextText = item.context_excerpt || '无上下文片段';
+    const sourceReplyType = item.source_reply_type || 'unknown';
+    const feedbackId = item.feedback_id || '-';
+    const analysisId = item.analysis_id || '-';
+    const statusText = item.status || 'pending';
+
+    wrapper.innerHTML = `
+      <div class="kg-review-item-header">
+        <span>#${item.id} · ${item.fact_type || 'fact'}</span>
+        <span class="kg-review-status">${statusText}</span>
+      </div>
+      <div class="kg-review-item-title">${item.entity_name || '未命名实体'} → ${item.fact_value || '空值'}</div>
+      <div class="kg-review-item-meta">
+        source_reply_type=${sourceReplyType}<br>
+        feedback_id=${feedbackId} · analysis_id=${analysisId}
+      </div>
+      <div class="kg-review-item-context">${contextText}</div>
+      <div class="kg-review-actions">
+        <button class="kg-review-btn approve" onclick="reviewKnowledgeGraphCandidate(${item.id}, 'approve')">通过并入图谱</button>
+        <button class="kg-review-btn reject" onclick="reviewKnowledgeGraphCandidate(${item.id}, 'reject')">拒绝</button>
+      </div>
+    `;
+    list.appendChild(wrapper);
+  });
+}
+
+async function refreshKnowledgeGraphReviewCandidates() {
+  const status = document.getElementById('kgReviewStatusFilter').value || 'pending';
+  const hint = document.getElementById('kgReviewHint');
+  const list = document.getElementById('kgReviewList');
+  hint.textContent = '正在加载知识图谱候选事实...';
+  list.innerHTML = '<div class="result-empty">加载中...</div>';
+
+  try {
+    const res = await fetch(`/api/knowledge-graph/review-candidates?status=${encodeURIComponent(status)}&limit=50`);
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || '加载失败');
+    }
+    renderKnowledgeGraphReviewCandidates(data.candidates || []);
+    hint.textContent = `已加载 ${data.count || 0} 条${status}候选事实。`;
+  } catch (e) {
+    console.error('加载知识图谱候选事实失败:', e);
+    hint.textContent = `加载失败：${e.message || e}`;
+    list.innerHTML = '<div class="result-empty">候选事实加载失败，请稍后重试。</div>';
+  }
+}
+
+async function reviewKnowledgeGraphCandidate(candidateId, action) {
+  const reviewer = (document.getElementById('kgReviewerInput').value || 'web-ui').trim();
+  const reviewNotes = document.getElementById('kgReviewNotesInput').value.trim();
+  const hint = document.getElementById('kgReviewHint');
+  hint.textContent = `正在处理候选事实 #${candidateId} ...`;
+
+  try {
+    const res = await fetch(`/api/knowledge-graph/review/${candidateId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        reviewer,
+        review_notes: reviewNotes
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || '审核失败');
+    }
+    hint.textContent = action === 'approve'
+      ? `候选事实 #${candidateId} 已通过，并已写入知识图谱。`
+      : `候选事实 #${candidateId} 已拒绝。`;
+    await refreshKnowledgeGraphReviewCandidates();
+  } catch (e) {
+    console.error('审核知识图谱候选事实失败:', e);
+    hint.textContent = `审核失败：${e.message || e}`;
+  }
+}
+
 async function submitFeedback(isHelpful) {
   const goodBtn = document.getElementById('feedbackGood');
   const badBtn = document.getElementById('feedbackBad');
+  const referenceReply = document.getElementById('referenceReplyInput').value.trim();
   
   goodBtn.disabled = true;
   badBtn.disabled = true;
@@ -1122,7 +1591,14 @@ async function submitFeedback(isHelpful) {
     body: lastInput.body || '',
     reply: document.getElementById('replyBox').textContent,
     unit: document.getElementById('replyUnitBadge').textContent,
+    district: lastLocation?.district || '',
     is_helpful: isHelpful,
+    feedback_type: 'reply_quality',
+    reference_reply: isHelpful ? '' : referenceReply,
+    retrieval: lastRetrieval || [],
+    location: lastLocation || {},
+    units: currentUnits || [],
+    processing_time: getTotalProcessingSeconds(lastProcessingTime),
     timestamp: new Date().toISOString()
   };
   
@@ -1134,10 +1610,83 @@ async function submitFeedback(isHelpful) {
     });
     
     if (res.ok) {
+      const result = await res.json();
+      lastReplyFeedbackId = result.feedback_id || null;
       document.getElementById('feedbackSuccess').style.display = 'block';
+      if (result.reply_error_analysis) {
+        renderReplyErrorAnalysis(result.reply_error_analysis);
+      } else if (result.reply_error_analysis_id) {
+        await loadReplyErrorAnalysis(result.feedback_id);
+      } else {
+        renderReplyErrorAnalysis(null);
+      }
+      if (result.queued_fact_count) {
+        document.getElementById('kgReviewStatusFilter').value = 'pending';
+        await refreshKnowledgeGraphReviewCandidates();
+      }
+    } else {
+      goodBtn.disabled = false;
+      badBtn.disabled = false;
     }
   } catch (e) {
     console.error('反馈提交失败:', e);
+    goodBtn.disabled = false;
+    badBtn.disabled = false;
+  }
+}
+
+function buildRagFeedbackComments(isUseful, reason) {
+  const ragCount = Array.isArray(lastRetrieval) ? lastRetrieval.length : 0;
+  const topTitles = (lastRetrieval || [])
+    .slice(0, 3)
+    .map(item => item?.title || '')
+    .filter(Boolean)
+    .join(' | ');
+  const usefulText = isUseful ? '有用' : '无用';
+  const reasonText = reason || '未填写原因';
+  return `RAG语料反馈=${usefulText}; 原因=${reasonText}; 命中数=${ragCount}; Top3=${topTitles || '无'}`;
+}
+
+async function submitRagFeedback(isUseful) {
+  const goodBtn = document.getElementById('ragFeedbackGood');
+  const badBtn = document.getElementById('ragFeedbackBad');
+  const reason = document.getElementById('ragFeedbackReason').value.trim();
+
+  goodBtn.disabled = true;
+  badBtn.disabled = true;
+  goodBtn.classList.toggle('selected', isUseful);
+  badBtn.classList.toggle('selected', !isUseful);
+
+  const feedbackData = {
+    tag: lastInput.tag || '',
+    title: lastInput.title || '',
+    body: lastInput.body || '',
+    reply: document.getElementById('replyBox').textContent,
+    unit: document.getElementById('replyUnitBadge').textContent,
+    district: lastLocation?.district || '',
+    is_helpful: isUseful,
+    feedback_type: 'rag_retrieval',
+    comments: buildRagFeedbackComments(isUseful, reason),
+    processing_time: getTotalProcessingSeconds(lastProcessingTime),
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(feedbackData)
+    });
+    if (res.ok) {
+      document.getElementById('feedbackSuccess').style.display = 'block';
+    } else {
+      goodBtn.disabled = false;
+      badBtn.disabled = false;
+    }
+  } catch (e) {
+    console.error('RAG 反馈提交失败:', e);
+    goodBtn.disabled = false;
+    badBtn.disabled = false;
   }
 }
 
@@ -1178,6 +1727,7 @@ async function checkHealth() {
   }
 }
 checkHealth();
+refreshKnowledgeGraphReviewCandidates();
 </script>
 </body>
 </html>

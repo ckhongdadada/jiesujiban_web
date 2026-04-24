@@ -16,8 +16,10 @@
 ## 技术架构
 
 ### 分类模型
-- BERT + CNN + Attention + TF-IDF 多组件融合架构
-- Focal Loss 处理类别不平衡
+- 当前演示权重：`final_model_fgm/`，运行时通过 `AutoModelForSequenceClassification` 加载 BERT/RoBERTa 兼容的序列分类模型，并通过 Softmax 输出回复单位 Top-K 概率。
+- 训练与实验路径：`training/train_unit_classifier_fgm.py` 支持 `--use-cnn-attention` 与 `--use-tfidf`，可训练 **BERT + CNN + Attention + TF-IDF** 多组件融合架构。
+- 说明：若要把演示运行时切换到 **BERT + CNN + Attention + TF-IDF**，需要使用同结构训练出的权重，并同时保存/加载 TF-IDF 向量器产物；不能直接用标准 `BertForSequenceClassification` 权重硬切。
+- Focal Loss / RankAware Loss 处理类别不平衡与 Top-K 排名目标
 - FGM 对抗训练提升鲁棒性
 
 ### 生成模型
@@ -26,25 +28,29 @@
 - 4-bit 量化训练
 
 ### RAG检索
-- BGE 向量检索
-- 语义相似度匹配
-- 政策案例知识库
+- 当前主流程使用 `BAAI/bge-small-zh-v1.5`，通过 `SentenceTransformer` 将政策/案例文档和用户留言转换为归一化稠密向量。
+- 查询时先把留言编码为向量，再与已缓存的文档向量做点积相似度计算；由于向量已归一化，该点积等价于余弦相似度。
+- 检索后会结合行政区、标签、回复单位、关键词命中等元数据做二次加权排序。
+- 当 BGE 或向量依赖不可用时，系统会回退到 TF-IDF 向量化与余弦相似度检索。
+- 政策案例知识库存放在 `data/runtime/` 下，反馈信息继续使用 SQLite 保存。
 
 ## 项目结构
 
-```
+```text
 接诉即办项目/
 ├── app.py                  # 主应用入口
 ├── enhancements/           # 核心模块
-│   ├── classifier_runtime.py    # 分类模型运行时
-│   ├── enhanced_generation.py   # 回复生成模块
-│   ├── location_ner.py          # 地名识别
-│   ├── rag_retriever_bge.py     # RAG检索
-│   └── ...
 ├── training/               # 训练脚本
-├── docs/                   # 文档
-├── static/                 # 静态资源
-└── templates/              # HTML模板
+├── tools/                  # 工具与测试脚本
+├── crawlers/               # 抓取脚本
+├── templates/              # HTML模板
+├── data/
+│   ├── runtime/            # 运行时词典、知识库、反馈库
+│   ├── raw/                # 原始抓取记录
+│   ├── processed/          # 清洗后的中间产物
+│   ├── reports/            # 训练/抓取报告
+│   └── universe/           # 抓取规划
+└── docs/                   # 项目文档（统一入口见 docs/INDEX.md）
 ```
 
 ## 环境要求
@@ -85,3 +91,4 @@ http://localhost:5000
 ## 许可证
 
 MIT License
+

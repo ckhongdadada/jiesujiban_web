@@ -1,0 +1,2 @@
+CUDA可用: False
+CUDA不可用，将使用CPU训练
