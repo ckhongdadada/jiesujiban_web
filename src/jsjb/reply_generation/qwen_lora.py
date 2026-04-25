@@ -211,6 +211,22 @@ def fallback_generate_reply(
     )
 
 
+def conservative_generate_reply(
+    tag: str,
+    title: str,
+    body: str,
+    unit: str,
+    location_result: dict[str, Any],
+) -> str:
+    district = location_result.get("district") or "相关区域"
+    issue = pick_issue_keyword(title, body)
+    return (
+        f"关于您反映的{district}{issue}问题，已转请{unit}核实处理。"
+        f"后续将结合现场情况和职责分工进一步核查问题成因，"
+        f"并依法依规推进办理和反馈。"
+    )
+
+
 def _build_location_block(location_result: dict[str, Any]) -> tuple[str, str]:
     district = location_result.get("district") or "未识别"
     place_lines = []
@@ -246,6 +262,28 @@ def _build_rag_block(retrieval_hits: list[dict[str, Any]]) -> str:
             f"区域:{hit.get('district') or '全市'}{status_text} | 摘要:{hit.get('snippet', '')}"
         )
     return "\n".join(rag_lines)
+
+
+def _grounding_strength(retrieval_hits: list[dict[str, Any]], district: str | None = None) -> str:
+    if not retrieval_hits:
+        return "none"
+
+    top_hit = retrieval_hits[0]
+    top_score = float(top_hit.get("score", 0.0) or 0.0)
+    matched_terms = top_hit.get("matched_terms", []) or []
+    semantic_terms = [term for term in matched_terms if term not in {"北京市", "全市"}]
+    top_district = top_hit.get("district") or ""
+
+    if district and top_district and top_district not in {district, "北京市", "全市"}:
+        if semantic_terms:
+            return "weak"
+        return "none"
+
+    if top_score >= 0.95 and len(semantic_terms) >= 2:
+        return "strong"
+    if top_score >= 0.65 and semantic_terms:
+        return "medium"
+    return "weak"
 
 
 def _run_generation(
@@ -314,6 +352,12 @@ def generate_reply_with_context(
     district, location_block = _build_location_block(location_result)
     rag_block = _build_rag_block(retrieval_hits)
     street = location_result.get("street") or location_result.get("subdistrict") or ""
+    grounding = _grounding_strength(retrieval_hits, district=district)
+
+    if grounding in {"none", "weak"}:
+        reply = conservative_generate_reply(tag, title, body, unit, location_result)
+        result = {"reply": reply, "verification": None, "fallback": True, "grounding": grounding}
+        return result if return_dict else result["reply"]
 
     user_content = (
         f"回复单位: {unit}\n"
@@ -325,6 +369,7 @@ def generate_reply_with_context(
         f"地名识别结果:\n"
         f"- 行政区: {district}\n"
         f"- 识别明细:\n{location_block}\n\n"
+        f"证据强度: {grounding}\n\n"
         f"检索到的政策/案例上下文:\n{rag_block}"
     )
 
@@ -336,6 +381,9 @@ def generate_reply_with_context(
         "2. 如果检索材料显示资源已运营，不要写成尚未建设。\n"
         "3. 责任单位和承办街道必须与检索材料一致，不得编造。\n"
         "4. 行政区只能使用输入中识别到的行政区。\n\n"
+        "5. 如果上下文没有明确给出项目名称、物业状态、处理时限、责任细节，不得自行补充具体事实。\n"
+        "6. 当证据强度为 weak 时，只能输出保守表述，如“已转请相关单位核实处理、将督促整改、将反馈结果”，"
+        "不得写成已经现场核实出的具体结论。\n\n"
         "【输出要求】\n"
         "只输出回复正文，不要称呼、落款和日期，控制在220字以内。"
     )

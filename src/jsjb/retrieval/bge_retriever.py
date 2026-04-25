@@ -276,6 +276,23 @@ class PolicyRetriever:
         haystack = self._compose_doc_text(doc)
         return [term for term in query_terms if term and term in haystack][:8]
 
+    def _split_matched_terms(self, matched_terms, district=None, unit=None):
+        locality_terms = set()
+        semantic_terms = []
+
+        if district:
+            locality_terms.add(district)
+            if district.endswith("区"):
+                locality_terms.add(district[:-1])
+        if unit:
+            locality_terms.add(unit)
+
+        for term in matched_terms:
+            if term in locality_terms:
+                continue
+            semantic_terms.append(term)
+        return locality_terms, semantic_terms
+
     def _preferred_doc_types(self, tag, preferred_doc_types):
         if preferred_doc_types:
             return set(preferred_doc_types)
@@ -371,6 +388,7 @@ class PolicyRetriever:
         boosted = float(base_score)
         matched_terms = self._matched_terms(doc, query_terms)
         doc_district = doc.get("district", "")
+        _, semantic_terms = self._split_matched_terms(matched_terms, district=district, unit=unit)
 
         if district:
             if doc_district == district:
@@ -395,9 +413,16 @@ class PolicyRetriever:
             boosted += 0.10
 
         if matched_terms:
-            boosted += min(len(matched_terms) * 0.035, 0.20)
+            boosted += min(len(matched_terms) * 0.03, 0.18)
         elif district and doc_district not in (district, "北京市", "全市"):
             boosted -= 0.08
+
+        if semantic_terms:
+            boosted += min(len(semantic_terms) * 0.09, 0.36)
+        elif district and doc_district == district:
+            # Same-district documents with no issue-level overlap are often less useful
+            # than cross-district cases about the same problem.
+            boosted -= 0.18
 
         if district and matched_terms:
             locality_terms = [term for term in matched_terms if term == district or term == district[:-1]]
@@ -426,8 +451,7 @@ class PolicyRetriever:
         if scores is None:
             return []
 
-        exact_or_city = []
-        fallback = []
+        ranked_items = []
         for idx, (score, doc) in enumerate(zip(scores, self.docs)):
             boosted_score, matched_terms = self._rerank_score(
                 score,
@@ -438,19 +462,19 @@ class PolicyRetriever:
                 unit=unit,
                 preferred_doc_types=preferred_doc_types,
             )
-            item = (boosted_score, matched_terms, doc, idx)
-            if not district or doc.get("district") in (district, "北京市", "全市"):
-                exact_or_city.append(item)
-            else:
-                fallback.append(item)
+            district_priority = 0
+            if district:
+                if doc.get("district") == district:
+                    district_priority = 2
+                elif doc.get("district") in ("北京市", "全市"):
+                    district_priority = 1
+            ranked_items.append((boosted_score, district_priority, matched_terms, doc, idx))
 
-        exact_or_city.sort(key=lambda item: item[0], reverse=True)
-        fallback.sort(key=lambda item: item[0], reverse=True)
-        ranked_items = exact_or_city + fallback
+        ranked_items.sort(key=lambda item: (item[0], item[1]), reverse=True)
 
         seen_keys = set()
         results = []
-        for score, matched_terms, doc, idx in ranked_items[: max(top_k * 6, 20)]:
+        for score, _, matched_terms, doc, idx in ranked_items[: max(top_k * 6, 20)]:
             if score <= 0:
                 continue
             dedup_key = (doc.get("title", ""), doc.get("source", ""))
