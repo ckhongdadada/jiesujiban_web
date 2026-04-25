@@ -113,8 +113,8 @@ if (Test-Path "test") {
     Write-Host "  ○ test/ 不存在，跳过" -ForegroundColor Gray
 }
 
-if (Test-Path "enhancements/rag_retriever.py.backup") {
-    Remove-Item -Path "enhancements/rag_retriever.py.backup" -Force
+if (Test-Path "legacy/enhancements/rag_retriever.py.backup") {
+    Remove-Item -Path "legacy/enhancements/rag_retriever.py.backup" -Force
     Write-Host "  ✓ 删除备份文件 rag_retriever.py.backup" -ForegroundColor Green
     $deleted++
 } else {

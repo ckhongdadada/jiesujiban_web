@@ -86,7 +86,7 @@ runtime_config.py负责读取config.json和环境变量，统一提供分类模�
 分类模型常用指标包括Top1 Accuracy、Top3 Accuracy、Macro F1和Weighted F1。Top1 Accuracy表示最高概率单位是否正确；Top3 Accuracy表示真实单位是否出现在前三候选中；Macro F1对每个类别一视同仁，能反映长尾类别效果；Weighted F1按样本数加权，更接近整体样本分布。
 生成模型评估不能只看ROUGE或BLEU。ROUGE关注与参考答案的词重合，BLEU关注n-gram精确匹配，语义相似度关注句向量接近程度，LLM Judge或人工评分可从相关性、完整性、专业性、格式合规和可操作性评估回复质量。政务回复还需要检查是否包含问候套话、是否出现其他区名、是否虚构现场核查结果等风险。
 10.1 混合检索与知识图谱融合 (Hybrid Retrieval & Knowledge Graph)
-为了突破单一稠密向量检索（Dense Retrieval）在专有名词和政务数字编号上的匹配瓶颈，系统在原有BGE模型基础上引入了混合检索机制（Hybrid Retriever, 参见 enhancements/rag_hybrid_retriever.py）。通过结合TF-IDF/BM25的稀疏检索能力与大语言模型的结构化知识库（Structured KB & Knowledge Graph），实现了“精准关键词拦截+泛化语义召回+图谱关系推理”的三路召回架构。这有效改善了特定政策条文和罕见地名的召回率。
+为了突破单一稠密向量检索（Dense Retrieval）在专有名词和政务数字编号上的匹配瓶颈，系统在原有BGE模型基础上引入了混合检索机制（Hybrid Retriever, 参见 src/jsjb/retrieval/experimental/hybrid_retriever.py）。通过结合TF-IDF/BM25的稀疏检索能力与大语言模型的结构化知识库（Structured KB & Knowledge Graph），实现了“精准关键词拦截+泛化语义召回+图谱关系推理”的三路召回架构。这有效改善了特定政策条文和罕见地名的召回率。
 10.2 严格的事实验证机制 (Fact Extraction & Verification)
 在政务场景中大模型幻觉是零容忍的。系统新增了独立的事实验证模块（fact_extractor.py, fact_verifier.py），采用“生成后校验”的策略。针对大模型生成的回复初稿，提取其中的核心“事实元组”（如处理状态、时间节点、政策指标等），然后与召回的RAG参考文档及知识图谱进行硬链接对比验证。一旦发现虚假套话或“捏造现场核查结果”，引擎将自动打回重写或给用户提出高风险红色预警。
 10.3 并发优化与推测解码提速 (Performance & Speculative Decoding)
@@ -126,11 +126,11 @@ active_learning_db_path	主动学习SQLite库	保存低置信与人工标注样�
 app.py	主演示入口，提供Web页面和/api/analyze等接口
 app_enhanced.py	增强入口，包含批量处理、指标与缓存等增强能力
 templates/index.html	前端页面模板
-enhancements/location_ner.py	地名识别与行政区映射
-enhancements/classifier_runtime.py	分类模型运行时加载与预测
-enhancements/rag_retriever_bge.py	BGE/TF-IDF检索器
-enhancements/enhanced_generation.py	Qwen+LoRA生成与事实验证
-enhancements/feedback_db.py	SQLite反馈数据库
+src/jsjb/location/ner.py	地名识别与行政区映射
+src/jsjb/unit_classifier/runtime.py	分类模型运行时加载与预测
+src/jsjb/retrieval/bge_retriever.py	BGE/TF-IDF检索器
+src/jsjb/reply_generation/service.py	Qwen+LoRA生成与事实验证
+src/jsjb/feedback/repository.py	SQLite反馈数据库
 training/train_unit_classifier_fgm.py	分类模型训练脚本，支持RankAware/Focal/FGM及融合结构
 data/runtime	运行时词典、RAG语料、单位目录、反馈数据库等
 
