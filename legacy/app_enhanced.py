@@ -11,8 +11,8 @@ import torch
 from flask import Flask, request, jsonify, render_template, g
 from flask_cors import CORS
 
-from enhancements.runtime_config import load_runtime_config
-from enhancements.data_paths import (
+from src.jsjb.core.config import load_runtime_config
+from src.jsjb.core.paths import (
     get_runtime_catalog_path,
     get_runtime_district_file,
     get_policy_corpus_path,
@@ -28,9 +28,9 @@ from enhancements.enhanced_generation import (
     generate_simple_reply,
     generate_reply_with_context,
 )
-from enhancements.model_cache import model_manager, init_model_preloading
-from enhancements.structured_logger import StructuredLogger, setup_logging
-from enhancements.input_validation import (
+from src.jsjb.core.model_registry import model_manager, init_model_preloading
+from src.jsjb.core.logging import StructuredLogger, setup_logging
+from src.jsjb.core.validation import (
     validate_and_clean_input,
     set_error_handler,
     ErrorHandler

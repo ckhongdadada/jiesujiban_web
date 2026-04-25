@@ -1,14 +1,7 @@
-"""
-主动学习模块
-提供不确定样本收集、人工标注、增量训练功能
-"""
+﻿"""Compatibility imports for the active learning module."""
 
-from enhancements.active_learning.sample_collector import SampleCollector
-from enhancements.active_learning.annotation_manager import AnnotationManager
-from enhancements.active_learning.incremental_trainer import IncrementalTrainer
+from src.jsjb.active_learning.sample_collector import SampleCollector
+from src.jsjb.active_learning.annotation import AnnotationManager
+from src.jsjb.active_learning.trainer import IncrementalTrainer
 
-__all__ = [
-    "SampleCollector",
-    "AnnotationManager",
-    "IncrementalTrainer"
-]
+__all__ = ["SampleCollector", "AnnotationManager", "IncrementalTrainer"]

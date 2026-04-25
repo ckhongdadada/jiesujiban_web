@@ -1,0 +1,10 @@
+{
+  "learning_rate": 2.5e-05,
+  "batch_size": 16,
+  "loss_type": "rank_aware",
+  "focal_gamma": 1.5,
+  "rank_penalty": 0.15,
+  "class_weight_power": 0.5,
+  "tfidf_dim": 3000,
+  "fgm_epsilon": 0.8
+}

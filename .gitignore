@@ -50,6 +50,7 @@ final_model*/
 *.json
 !label_map.json
 !package.json
+!configs/**/*.json
 
 # Logs
 *.log

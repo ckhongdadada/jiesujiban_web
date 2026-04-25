@@ -1,14 +1,7 @@
-"""
-知识图谱模块
-提供实体关系管理、图查询、推理等功能
-"""
+﻿"""Compatibility imports for the knowledge graph module."""
 
-from enhancements.knowledge_graph.graph_manager import KnowledgeGraphManager
-from enhancements.knowledge_graph.entity_extractor import EntityExtractor
-from enhancements.knowledge_graph.graph_query import GraphQueryEngine
+from src.jsjb.knowledge.graph import KnowledgeGraphManager
+from src.jsjb.knowledge.entity_extractor import EntityExtractor
+from src.jsjb.knowledge.query import GraphQueryEngine
 
-__all__ = [
-    "KnowledgeGraphManager",
-    "EntityExtractor", 
-    "GraphQueryEngine"
-]
+__all__ = ["KnowledgeGraphManager", "EntityExtractor", "GraphQueryEngine"]
