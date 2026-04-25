@@ -13,44 +13,52 @@ from typing import Dict, Any, Optional
 
 class StructuredLogger:
     """结构化日志管理器"""
-    
+
     def __init__(self, log_dir: str = "logs", max_bytes: int = 10*1024*1024, backup_count: int = 5):
-        """
-        初始化日志系统
-        
-        Args:
-            log_dir: 日志目录
-            max_bytes: 单个日志文件最大大小
-            backup_count: 备份文件数量
-        """
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
-        
-        # 配置根日志记录器
+
         self.logger = logging.getLogger("complaint_system")
         self.logger.setLevel(logging.INFO)
-        
-        # 清除已有的处理器
+
         for handler in self.logger.handlers[:]:
             self.logger.removeHandler(handler)
-        
-        # 文件处理器（轮转）
+
+        formatter = StructuredFormatter()
+
         log_file = os.path.join(log_dir, "complaint_system.log")
         file_handler = logging.handlers.RotatingFileHandler(
             log_file, maxBytes=max_bytes, backupCount=backup_count
         )
-        
-        # 控制台处理器
-        console_handler = logging.StreamHandler()
-        
-        # 格式化器
-        formatter = StructuredFormatter()
         file_handler.setFormatter(formatter)
+
+        console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
-        
-        # 添加处理器
+
         self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
+
+        self._quality_logger = logging.getLogger("complaint_system.quality")
+        self._quality_logger.setLevel(logging.INFO)
+        self._quality_logger.propagate = False
+
+        quality_file = os.path.join(log_dir, "quality_anomalies.log")
+        quality_handler = logging.handlers.RotatingFileHandler(
+            quality_file, maxBytes=max_bytes, backupCount=backup_count
+        )
+        quality_handler.setFormatter(formatter)
+        self._quality_logger.addHandler(quality_handler)
+
+        self._retrieval_quality_logger = logging.getLogger("complaint_system.retrieval_quality")
+        self._retrieval_quality_logger.setLevel(logging.INFO)
+        self._retrieval_quality_logger.propagate = False
+
+        retrieval_quality_file = os.path.join(log_dir, "retrieval_weak_evidence.log")
+        retrieval_quality_handler = logging.handlers.RotatingFileHandler(
+            retrieval_quality_file, maxBytes=max_bytes, backupCount=backup_count
+        )
+        retrieval_quality_handler.setFormatter(formatter)
+        self._retrieval_quality_logger.addHandler(retrieval_quality_handler)
     
     def info(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
         """信息级别日志"""
@@ -111,12 +119,43 @@ class StructuredLogger:
         """记录检索日志"""
         extra = {
             'type': 'retrieval',
-            'query': query[:100],  # 限制长度
+            'query': query[:100],
             'district': district,
             'results_count': results_count,
             'retrieval_time': retrieval_time
         }
         self.info(f"检索完成 - 查询: {query[:50]}..., 结果数: {results_count}", extra)
+
+    def log_quality_anomaly(self, anomaly_type: str, details: Dict[str, Any]) -> None:
+        """记录生成质量异常到独立日志文件
+
+        anomaly_type: 串区 | 弱证据 | 事实验证告警 | 生成失败
+        """
+        extra = {
+            'type': 'quality_anomaly',
+            'anomaly_type': anomaly_type,
+            **details,
+        }
+        self._quality_logger.info(
+            f"[质量异常] {anomaly_type}: {details.get('summary', '')}",
+            extra=extra,
+        )
+
+    def log_weak_evidence(self, query: str, district: str, grounding: str,
+                          top_score: float, matched_terms: list) -> None:
+        """记录检索弱证据到独立日志文件，方便后续补语料"""
+        extra = {
+            'type': 'weak_evidence',
+            'query': query[:200],
+            'district': district,
+            'grounding': grounding,
+            'top_score': top_score,
+            'matched_terms': matched_terms,
+        }
+        self._retrieval_quality_logger.info(
+            f"[弱证据] grounding={grounding}, district={district}, query={query[:80]}",
+            extra=extra,
+        )
 
 
 class StructuredFormatter(logging.Formatter):

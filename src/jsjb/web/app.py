@@ -1,4 +1,4 @@
-﻿"""
+"""
 ?????????? - Flask ???
 """
 
@@ -30,6 +30,7 @@ from src.jsjb.reply_generation.service import (
     generate_simple_reply,
     generate_reply_with_context,
 )
+from src.jsjb.reply_generation.qwen_lora import _grounding_strength
 from src.jsjb.core.model_registry import model_manager, init_model_preloading
 from src.jsjb.core.logging import StructuredLogger, setup_logging
 from src.jsjb.core.validation import (
@@ -498,13 +499,45 @@ def create_app():
             total_time = time.time() - start_time
             
             # 鐠佹澘缍嶇拠閿嬬湴鐎瑰本鍨?
+            grounding = _grounding_strength(docs, district=location.get("district")) if docs else "none"
+            is_forced_unit = bool(forced_unit)
+            reply_mode = "保守兜底生成" if grounding in {"none", "weak"} else "RAG增强生成"
+            if is_forced_unit:
+                reply_mode += " (用户指定单位)"
+
+            if grounding in {"none", "weak"}:
+                top_score = docs[0].get("score", 0.0) if docs else 0.0
+                matched_terms = [d.get("title", "") for d in docs[:3]] if docs else []
+                logger.log_weak_evidence(
+                    query=f"{title} {body}",
+                    district=location.get("district", ""),
+                    grounding=grounding,
+                    top_score=top_score,
+                    matched_terms=matched_terms,
+                )
+
+            if verification and verification.get("needs_review"):
+                logger.log_quality_anomaly("事实验证告警", {
+                    "summary": f"回复可能包含未验证事实",
+                    "title": title[:80],
+                    "unit": primary_unit,
+                })
+
             response_data = {
                 "status": "ok",
                 "location": location,
                 "units": units,
+                "unit_explanation": {
+                    "classifier_route": config.classifier_route,
+                    "top1_meaning": "模型预测最可能的承办单位",
+                    "top3_meaning": "模型预测的前3个候选承办单位，按置信度降序",
+                    "unit_source": "用户手动指定" if is_forced_unit else "模型预测",
+                },
                 "retrieval": docs[:3] if docs else [],
+                "evidence_strength": grounding,
                 "knowledge_graph": knowledge_graph,
                 "reply": reply,
+                "reply_mode": reply_mode,
                 "verification": verification,
                 "needs_review": bool(verification and verification.get("needs_review")),
                 "processing_time": {

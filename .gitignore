@@ -51,6 +51,7 @@ final_model*/
 !label_map.json
 !package.json
 !configs/**/*.json
+!best_params.json
 
 # Logs
 *.log
@@ -83,3 +84,10 @@ data/
 training_reports/
 checkpoints/
 outputs/
+
+# Joblib cache
+*.joblib
+
+# Quality logs (runtime generated)
+quality_anomalies.log
+retrieval_weak_evidence.log
