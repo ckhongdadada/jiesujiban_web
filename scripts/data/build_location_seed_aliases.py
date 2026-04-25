@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.data_paths import ensure_standard_data_layout, get_runtime_file  # noqa: E402
+from src.jsjb.core.paths import ensure_standard_data_layout, get_runtime_file  # noqa: E402
 
 
 MASTER_TABLE_PATH = Path(r"C:\Users\28414\Documents\New project\raw_data_analysis\master_table_v1.csv")

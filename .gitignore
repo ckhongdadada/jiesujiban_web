@@ -82,3 +82,4 @@ temp/
 data/
 training_reports/
 checkpoints/
+outputs/

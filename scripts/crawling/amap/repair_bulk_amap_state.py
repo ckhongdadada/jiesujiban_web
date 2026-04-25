@@ -10,7 +10,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.data_paths import (
+from src.jsjb.core.paths import (
     ensure_standard_data_layout,
     get_bulk_state_path,
     get_bulk_records_path,

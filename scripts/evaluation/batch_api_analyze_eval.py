@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app import create_app  # noqa: E402
-from enhancements.unit_catalog import canonicalize_unit  # noqa: E402
+from src.jsjb.unit_classifier.catalog import canonicalize_unit  # noqa: E402
 
 MASTER_TABLE_PATH = Path(r"C:\Users\28414\Documents\New project\raw_data_analysis\master_table_v1.csv")
 REPORT_DIR = PROJECT_ROOT / "data" / "reports" / "evaluation"

@@ -16,9 +16,9 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.runtime_config import load_runtime_config
-from enhancements.training_acceptance import build_acceptance_report, write_acceptance_report
-from enhancements.data_paths import get_training_reports_dir
+from src.jsjb.core.config import load_runtime_config
+from src.jsjb.unit_classifier.acceptance import build_acceptance_report, write_acceptance_report
+from src.jsjb.core.paths import get_training_reports_dir
 
 TRAINING_DIR = PROJECT_ROOT / "training"
 REQUIRED_CLASSIFIER_COLUMNS = ["留言标签", "留言标题", "留言正文", "官方回复单位"]

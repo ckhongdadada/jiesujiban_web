@@ -5,7 +5,7 @@
 import unittest
 import json
 from tests import BaseTestCase
-from enhancements.structured_kb import (
+from src.jsjb.knowledge.structured_kb import (
     StructuredKnowledgeBase, ProjectInfo, PublicResource, UnitMapping
 )
 

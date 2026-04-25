@@ -8,8 +8,8 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.runtime_config import load_runtime_config
-from enhancements.training_acceptance import (
+from src.jsjb.core.config import load_runtime_config
+from src.jsjb.unit_classifier.acceptance import (
     build_acceptance_report,
     format_acceptance_report,
     write_acceptance_report,

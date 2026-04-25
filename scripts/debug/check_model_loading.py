@@ -1,7 +1,7 @@
 """
 检查模型加载路径
 """
-from enhancements.model_artifacts import inspect_classifier_artifacts
+from src.jsjb.core.artifacts import inspect_classifier_artifacts
 
 model_dir = "final_model_fgm"
 base_model_dir = r"C:\python\接诉即办\.venv\local_roberta_model"

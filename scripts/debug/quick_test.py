@@ -15,9 +15,9 @@ print("=" * 50)
 
 # 测试1: 导入模块
 try:
-    from enhancements.model_cache import ModelCache
-    from enhancements.structured_logger import StructuredLogger
-    from enhancements.input_validation import InputValidator
+    from src.jsjb.core.model_registry import ModelCache
+    from src.jsjb.core.logging import StructuredLogger
+    from src.jsjb.core.validation import InputValidator
     print("✅ 模块导入成功")
 except Exception as e:
     print(f"❌ 模块导入失败: {e}")
@@ -62,7 +62,7 @@ except Exception as e:
 
 # 测试6: 测试逻辑修复
 try:
-    from enhancements.enhanced_generation import generate_simple_reply
+    from src.jsjb.reply_generation.service import generate_simple_reply
     import inspect
     sig = inspect.signature(generate_simple_reply)
     params = list(sig.parameters.keys())

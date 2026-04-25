@@ -10,7 +10,7 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from enhancements.feedback_db import get_feedback_database
+from src.jsjb.feedback.repository import get_feedback_database
 
 def test_feedback_database():
     """测试反馈数据库功能"""

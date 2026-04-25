@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.data_paths import get_training_reports_dir
+from src.jsjb.core.paths import get_training_reports_dir
 
 
 PYTHON_EXE = r"C:\Users\28414\anaconda3\envs\qwen_env\python.exe"

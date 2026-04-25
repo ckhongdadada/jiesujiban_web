@@ -3,7 +3,7 @@
 """
 
 import unittest
-from enhancements.fact_verifier import FactVerifier, verify_generated_reply
+from src.jsjb.reply_generation.verification import FactVerifier, verify_generated_reply
 
 
 class TestFactVerifier(unittest.TestCase):

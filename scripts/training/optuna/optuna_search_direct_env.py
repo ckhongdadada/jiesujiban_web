@@ -5,7 +5,7 @@ sys.path.insert(0, ".")
 
 try:
     from tools.optuna_search_classifier import parse_args, objective
-    from enhancements.data_paths import get_training_reports_dir
+    from src.jsjb.core.paths import get_training_reports_dir
     import optuna
     from pathlib import Path
     from datetime import datetime

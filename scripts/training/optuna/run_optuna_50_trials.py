@@ -24,7 +24,7 @@ log("=" * 60)
 try:
     log("导入模块...")
     from tools.optuna_search_classifier import parse_args, objective
-    from enhancements.data_paths import get_training_reports_dir
+    from src.jsjb.core.paths import get_training_reports_dir
     import optuna
     from pathlib import Path
     log("模块导入完成")

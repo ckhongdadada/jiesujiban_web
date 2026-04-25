@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from enhancements.unit_catalog import (
+from src.jsjb.unit_classifier.catalog import (
     normalize_unit_text,
     canonicalize_unit,
     load_unit_catalog,

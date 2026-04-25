@@ -4,7 +4,7 @@
 
 import unittest
 from tests import BaseTestCase
-from enhancements.feedback_db import FeedbackDatabase
+from src.jsjb.feedback.repository import FeedbackDatabase
 
 
 class TestFeedbackDatabase(BaseTestCase):

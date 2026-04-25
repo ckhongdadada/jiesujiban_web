@@ -13,9 +13,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.knowledge_graph.graph_manager import KnowledgeGraphManager
-from enhancements.knowledge_graph.entity_extractor import EntityExtractor
-from enhancements.knowledge_graph.graph_query import GraphQueryEngine
+from src.jsjb.knowledge.graph import KnowledgeGraphManager
+from src.jsjb.knowledge.entity_extractor import EntityExtractor
+from src.jsjb.knowledge.query import GraphQueryEngine
 
 
 def build_graph_from_corpus(corpus_path: str, graph_manager: KnowledgeGraphManager):

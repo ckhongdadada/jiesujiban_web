@@ -80,7 +80,7 @@ def test_model_path():
     print("测试3: 检查基础模型")
     print("=" * 60)
     
-    from enhancements.runtime_config import load_runtime_config
+    from src.jsjb.core.config import load_runtime_config
     
     config = load_runtime_config()
     base_model = config.classifier_base_model
@@ -102,7 +102,7 @@ def test_output_dir():
     print("测试4: 检查输出目录")
     print("=" * 60)
     
-    from enhancements.data_paths import get_training_reports_dir
+    from src.jsjb.core.paths import get_training_reports_dir
     
     output_dir = get_training_reports_dir() / "optuna"
     print(f"输出目录: {output_dir}")

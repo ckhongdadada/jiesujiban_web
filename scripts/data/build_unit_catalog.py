@@ -10,8 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.data_paths import ensure_standard_data_layout, get_runtime_unit_catalog_path
-from enhancements.unit_catalog import build_catalog_from_frames
+from src.jsjb.core.paths import ensure_standard_data_layout, get_runtime_unit_catalog_path
+from src.jsjb.unit_classifier.catalog import build_catalog_from_frames
 
 MASTER_TABLE_CANDIDATES = [
     Path(r"C:\Users\28414\Documents\New project\raw_data_analysis\master_table_v1.csv"),

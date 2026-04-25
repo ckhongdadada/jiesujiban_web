@@ -13,10 +13,10 @@ import time
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from enhancements.model_cache import ModelCache, model_manager
-from enhancements.structured_logger import StructuredLogger
-from enhancements.input_validation import InputValidator
-from enhancements.enhanced_generation import generate_simple_reply
+from src.jsjb.core.model_registry import ModelCache, model_manager
+from src.jsjb.core.logging import StructuredLogger
+from src.jsjb.core.validation import InputValidator
+from src.jsjb.reply_generation.service import generate_simple_reply
 
 
 def test_model_cache():

@@ -6,11 +6,11 @@
 import unittest
 import json
 from tests import BaseTestCase
-from enhancements.fact_verifier import FactVerifier
-from enhancements.fact_extractor import FactExtractor
-from enhancements.structured_kb import StructuredKnowledgeBase, ProjectInfo
-from enhancements.feedback_db import FeedbackDatabase
-from enhancements.knowledge_updater import KnowledgeUpdater
+from src.jsjb.reply_generation.verification import FactVerifier
+from src.jsjb.reply_generation.fact_extraction import FactExtractor
+from src.jsjb.knowledge.structured_kb import StructuredKnowledgeBase, ProjectInfo
+from src.jsjb.feedback.repository import FeedbackDatabase
+from src.jsjb.knowledge.updater import KnowledgeUpdater
 
 
 class TestIntegration(BaseTestCase):

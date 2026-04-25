@@ -10,7 +10,7 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from enhancements.rag_retriever_bge import PolicyRetriever
+from src.jsjb.retrieval.bge_retriever import PolicyRetriever
 
 
 def simple_test():

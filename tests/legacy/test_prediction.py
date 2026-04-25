@@ -2,7 +2,7 @@
 测试预测功能 - 验证政府和办事处是否能正常出现在预测结果中
 """
 import torch
-from enhancements.classifier_runtime import ClassifierRuntime
+from src.jsjb.unit_classifier.runtime import ClassifierRuntime
 
 # 初始化分类器
 device = "cuda" if torch.cuda.is_available() else "cpu"

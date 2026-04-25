@@ -8,8 +8,8 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.runtime_config import load_runtime_config
-from enhancements.startup_checks import run_startup_checks, summarize_readiness
+from src.jsjb.core.config import load_runtime_config
+from src.jsjb.core.startup import run_startup_checks, summarize_readiness
 
 
 def main() -> None:

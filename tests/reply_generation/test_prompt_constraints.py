@@ -11,7 +11,7 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from enhancements.enhanced_generation import generate_simple_reply
+from src.jsjb.reply_generation.service import generate_simple_reply
 
 
 def test_prompt_constraints():
