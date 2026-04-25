@@ -18,7 +18,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from enhancements.training_acceptance import build_acceptance_report, format_acceptance_report, write_acceptance_report
+from src.jsjb.unit_classifier.acceptance import build_acceptance_report, format_acceptance_report, write_acceptance_report
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

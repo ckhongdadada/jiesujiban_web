@@ -356,20 +356,29 @@ class MessageQueue:
     
     def _handle_predict(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """处理预测任务"""
-        from enhancements.classifier_runtime import ClassifierRuntime
+        import torch
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.unit_classifier.runtime import ClassifierRuntime
         
         tag = payload.get("tag", "")
         title = payload.get("title", "")
         body = payload.get("body", "")
         
-        classifier = ClassifierRuntime()
+        config = load_runtime_config()
+        classifier = ClassifierRuntime(
+            model_dir=config.classifier_model_dir,
+            base_model_dir=config.classifier_base_model,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
         predictions = classifier.predict(tag, title, body)
         
         return {"predictions": predictions}
     
     def _handle_generate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """处理生成任务"""
-        from enhancements.enhanced_generation import generate_reply_with_context
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.reply_generation.service import generate_reply_with_context
+        config = load_runtime_config()
         
         result = generate_reply_with_context(
             tag=payload.get("tag", ""),
@@ -377,7 +386,14 @@ class MessageQueue:
             body=payload.get("body", ""),
             unit=payload.get("unit", ""),
             location_result=payload.get("location_result", {}),
-            retrieval_hits=payload.get("retrieval_hits", [])
+            retrieval_hits=payload.get("retrieval_hits", []),
+            base_model_path=config.generator_base_model,
+            lora_path=config.generator_lora_dir,
+            draft_model_path=config.generator_draft_model,
+            enable_assisted_decoding=config.enable_assisted_decoding,
+            max_new_tokens=config.generation_max_tokens,
+            temperature=config.generation_temperature,
+            return_dict=True,
         )
         
         return result
@@ -407,7 +423,7 @@ class MessageQueue:
     
     def _handle_update_kb(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """处理知识库更新任务"""
-        from enhancements.knowledge_updater import run_daily_knowledge_update
+        from src.jsjb.knowledge.updater import run_daily_knowledge_update
         
         report = run_daily_knowledge_update()
         

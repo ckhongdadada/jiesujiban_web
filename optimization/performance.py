@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 import json
 import threading
+import torch
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, asdict
@@ -368,10 +369,12 @@ class PerformanceOptimizer:
     
     def _process_internal(self, tag: str, title: str, body: str, unit: str) -> Dict[str, Any]:
         """内部处理逻辑"""
-        from enhancements.location_ner import LocationNER
-        from enhancements.rag_retriever_bge import RAGRetriever as BGERetriever
-        from enhancements.classifier_runtime import ClassifierRuntime
-        from enhancements.enhanced_generation import generate_reply_with_context
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.location import LocationNER
+        from src.jsjb.retrieval import PolicyRetriever
+        from src.jsjb.unit_classifier.runtime import ClassifierRuntime
+        from src.jsjb.reply_generation.service import generate_reply_with_context
+        config = load_runtime_config()
         
         result = {
             "tag": tag,
@@ -390,14 +393,20 @@ class PerformanceOptimizer:
         try:
             ner_start = time.time()
             ner = LocationNER()
-            result["location_result"] = ner.extract(title + " " + body)
+            result["location_result"] = ner.extract_district(title + " " + body)
             result["timings"]["location_ner"] = (time.time() - ner_start) * 1000
         except Exception as e:
             print(f"[性能优化] 地名识别失败: {e}")
         
         try:
             rag_start = time.time()
-            rag = BGERetriever()
+            rag = PolicyRetriever(
+                backend=config.rag_backend,
+                enable_query_rewrite=config.rag_enable_query_rewrite,
+                multi_query_count=config.rag_multi_query_count,
+                dense_weight=config.rag_dense_weight,
+                sparse_weight=config.rag_sparse_weight,
+            )
             result["retrieval_hits"] = rag.search(title + " " + body, top_k=5)
             result["timings"]["rag_retrieval"] = (time.time() - rag_start) * 1000
         except Exception as e:
@@ -405,7 +414,11 @@ class PerformanceOptimizer:
         
         try:
             classify_start = time.time()
-            classifier = ClassifierRuntime()
+            classifier = ClassifierRuntime(
+                model_dir=config.classifier_model_dir,
+                base_model_dir=config.classifier_base_model,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
             result["predictions"] = classifier.predict(tag, title, body)
             result["timings"]["classification"] = (time.time() - classify_start) * 1000
         except Exception as e:
@@ -420,7 +433,14 @@ class PerformanceOptimizer:
                     body=body,
                     unit=unit,
                     location_result=result["location_result"],
-                    retrieval_hits=result["retrieval_hits"]
+                    retrieval_hits=result["retrieval_hits"],
+                    base_model_path=config.generator_base_model,
+                    lora_path=config.generator_lora_dir,
+                    draft_model_path=config.generator_draft_model,
+                    enable_assisted_decoding=config.enable_assisted_decoding,
+                    max_new_tokens=config.generation_max_tokens,
+                    temperature=config.generation_temperature,
+                    return_dict=True,
                 )
                 result["reply"] = gen_result.get("reply", "")
                 result["timings"]["generation"] = (time.time() - gen_start) * 1000

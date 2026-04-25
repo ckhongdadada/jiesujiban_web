@@ -12,6 +12,8 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
 
+from src.jsjb.core.config import load_runtime_config
+
 
 def optimize_classifier_loading():
     """优化分类器加载"""
@@ -36,7 +38,8 @@ def optimize_generation_params():
     """优化生成参数"""
     print("\n[优化] 生成参数优化...")
     
-    from enhancements.enhanced_generation import MAX_NEW_TOKENS
+    config = load_runtime_config()
+    from src.jsjb.reply_generation.qwen_lora import MAX_NEW_TOKENS
     
     print(f"  当前 max_new_tokens: {MAX_NEW_TOKENS}")
     
@@ -99,8 +102,15 @@ def preload_all_models():
     # 1. 预加载分类器
     print("\\n[1/4] 预加载分类器模型...")
     try:
-        from enhancements.classifier_runtime import ClassifierRuntime
-        classifier = ClassifierRuntime()
+        import torch
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.unit_classifier.runtime import ClassifierRuntime
+        config = load_runtime_config()
+        classifier = ClassifierRuntime(
+            model_dir=config.classifier_model_dir,
+            base_model_dir=config.classifier_base_model,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
         classifier.predict("测试", "测试标题", "测试内容")
         print("  ✓ 分类器模型预加载成功")
     except Exception as e:
@@ -109,8 +119,15 @@ def preload_all_models():
     # 2. 预加载生成器
     print("\\n[2/4] 预加载生成器模型...")
     try:
-        from enhancements.enhanced_generation import load_generator
-        load_generator()
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.reply_generation.service import load_generator
+        config = load_runtime_config()
+        load_generator(
+            base_model_path=config.generator_base_model,
+            lora_path=config.generator_lora_dir,
+            draft_model_path=config.generator_draft_model,
+            enable_assisted_decoding=config.enable_assisted_decoding,
+        )
         print("  ✓ 生成器模型预加载成功")
     except Exception as e:
         print(f"  ✗ 生成器模型预加载失败: {e}")
@@ -118,9 +135,9 @@ def preload_all_models():
     # 3. 预加载地名识别
     print("\\n[3/4] 预加载地名识别库...")
     try:
-        from enhancements.location_ner import LocationNER
+        from src.jsjb.location import LocationNER
         ner = LocationNER()
-        ner.extract("测试地址")
+        ner.extract_district("测试地址")
         print("  ✓ 地名识别库预加载成功")
     except Exception as e:
         print(f"  ✗ 地名识别库预加载失败: {e}")
@@ -128,8 +145,16 @@ def preload_all_models():
     # 4. 预加载RAG检索
     print("\\n[4/4] 预加载RAG检索索引...")
     try:
-        from enhancements.rag_retriever_bge import RAGRetriever
-        rag = RAGRetriever()
+        from src.jsjb.core.config import load_runtime_config
+        from src.jsjb.retrieval import RAGRetriever
+        config = load_runtime_config()
+        rag = RAGRetriever(
+            backend=config.rag_backend,
+            enable_query_rewrite=config.rag_enable_query_rewrite,
+            multi_query_count=config.rag_multi_query_count,
+            dense_weight=config.rag_dense_weight,
+            sparse_weight=config.rag_sparse_weight,
+        )
         rag.search("测试查询", top_k=1)
         print("  ✓ RAG检索索引预加载成功")
     except Exception as e:
