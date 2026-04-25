@@ -86,9 +86,7 @@ src/jsjb/core/config.py
 
 ## 兼容说明
 
-`enhancements/` 目前保留为轻量兼容转发层，方便旧脚本短期继续运行；新的业务代码不应再直接依赖 `enhancements/`。旧版 `app_enhanced.py` 已归档到 `legacy/app_enhanced.py`。
-
-目前仓库中的非 `legacy` 主线代码，已经不再依赖 `enhancements/`。后续如果没有外部旧脚本需要兼容，再考虑彻底移除这一层。
+`enhancements/` 兼容层已经从主仓库结构中移除。当前正式代码统一从 `src/jsjb/*` 导入；旧版 `app_enhanced.py` 和早期实现已归档到 `legacy/`。
 
 ## 最小验证
 
