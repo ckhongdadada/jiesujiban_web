@@ -15,7 +15,7 @@ from src.jsjb.core.logging import StructuredLogger
 
 
 def _get_base_dir() -> str:
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 _gen_tokenizer = None
@@ -34,14 +34,42 @@ def _effective_assisted_decoding(enable_assisted_decoding: bool | None) -> bool:
     return bool(enable_assisted_decoding)
 
 
+QWEN_BASE_MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+QWEN_DRAFT_MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+
+
 def _resolve_paths(
     base_model_path: str | None = None,
     lora_path: str | None = None,
     draft_model_path: str | None = None,
 ) -> tuple[str, str, str]:
-    base_model = base_model_path or os.path.join(_get_base_dir(), "qwen_models", "Qwen", "Qwen2___5-1___5B-Instruct")
-    lora_dir = lora_path or os.path.join(_get_base_dir(), "qwen_reply_model")
-    draft_model = draft_model_path or os.path.join(_get_base_dir(), "qwen_models", "Qwen", "Qwen2.5-0.5B-Instruct")
+    env_base = os.getenv("QWEN_BASE_MODEL_PATH", "")
+    env_lora = os.getenv("QWEN_LORA_PATH", "")
+    env_draft = os.getenv("QWEN_DRAFT_MODEL_PATH", "")
+    
+    if base_model_path:
+        base_model = base_model_path
+    elif env_base:
+        base_model = env_base
+    else:
+        local_path = os.path.join(_get_base_dir(), "checkpoints", "generator", "base_models", "qwen_models", "Qwen", "Qwen2___5-1___5B-Instruct")
+        base_model = local_path if os.path.exists(local_path) else QWEN_BASE_MODEL_ID
+    
+    if lora_path:
+        lora_dir = lora_path
+    elif env_lora:
+        lora_dir = env_lora
+    else:
+        lora_dir = os.path.join(_get_base_dir(), "checkpoints", "generator", "lora", "qwen_reply_model")
+    
+    if draft_model_path:
+        draft_model = draft_model_path
+    elif env_draft:
+        draft_model = env_draft
+    else:
+        local_path = os.path.join(_get_base_dir(), "checkpoints", "generator", "base_models", "qwen_models", "Qwen", "Qwen2.5-0.5B-Instruct")
+        draft_model = local_path if os.path.exists(local_path) else QWEN_DRAFT_MODEL_ID
+    
     return base_model, lora_dir, draft_model
 
 
@@ -100,7 +128,8 @@ def load_generator(
 
         base_model, lora_dir, draft_model = _resolve_paths(base_model_path, lora_path, draft_model_path)
         status = inspect_generator_artifacts(base_model, lora_dir)
-        if not status["runtime_ready"]:
+        is_local_model = os.path.exists(base_model) if base_model else False
+        if is_local_model and not status["runtime_ready"]:
             print(f"[生成模型] 产物未就绪 missing={status['missing']}")
             for warning in status["warnings"]:
                 print(f"[生成模型] 提示: {warning}")
@@ -112,11 +141,13 @@ def load_generator(
         device_map = "auto" if torch.cuda.is_available() else None
 
         print("[生成模型] 正在加载基础模型 + LoRA 适配器...")
-        print(f"[生成模型] 基础模型目录: {base_model}")
+        print(f"[生成模型] 基础模型: {base_model}")
         print(f"[生成模型] LoRA 目录: {actual_lora_dir}")
+        if not is_local_model:
+            print("[生成模型] 使用 HuggingFace 模型，将自动下载...")
 
         try:
-            _gen_tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True, local_files_only=True)
+            _gen_tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
             if _gen_tokenizer.pad_token is None:
                 _gen_tokenizer.pad_token = _gen_tokenizer.eos_token
 
@@ -125,7 +156,6 @@ def load_generator(
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 trust_remote_code=True,
-                local_files_only=True,
             )
             if device_map is None:
                 base_model_obj = base_model_obj.to(_device)
@@ -134,14 +164,14 @@ def load_generator(
             _gen_model.eval()
 
             _draft_model = None
-            if assisted_enabled and draft_model and os.path.exists(draft_model):
+            if assisted_enabled and draft_model:
+                draft_is_local = os.path.exists(draft_model) if draft_model else False
                 try:
                     draft_model_obj = AutoModelForCausalLM.from_pretrained(
                         draft_model,
                         torch_dtype=torch_dtype,
                         device_map=device_map,
                         trust_remote_code=True,
-                        local_files_only=True,
                     )
                     if device_map is None:
                         draft_model_obj = draft_model_obj.to(_device)
