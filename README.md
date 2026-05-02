@@ -16,6 +16,91 @@
 - **知识图谱**：结构化知识管理 + RAG 深度集成
 - **反馈闭环**：用户反馈驱动的检索质量优化
 
+## 🏛️ 系统架构
+
+```mermaid
+graph TB
+    subgraph 用户层
+        A[市民留言] --> B[Web API]
+    end
+
+    subgraph 应用层
+        B --> C[地名识别模块]
+        B --> D[单位分类模块]
+        B --> E[RAG 检索模块]
+        B --> F[回复生成模块]
+        
+        C --> C1[规则词典]
+        C --> C2[行政区映射]
+        
+        D --> D1[BERT Encoder]
+        D --> D2[CNN + Attention]
+        D --> D3[TF-IDF 分支]
+        
+        E --> E1[BGE 向量检索]
+        E --> E2[TF-IDF 稀疏检索]
+        E --> E3[Cross-Encoder Reranker]
+        E --> E4[知识图谱增强]
+        
+        F --> F1[Qwen2.5-1.5B]
+        F --> F2[LoRA 适配器]
+        F --> F3[事实验证]
+    end
+
+    subgraph 数据层
+        G[(SQLite<br/>反馈数据库)]
+        H[(Redis<br/>缓存)]
+        I[(Neo4j<br/>知识图谱)]
+        J[政策语料库]
+    end
+
+    subgraph 反馈闭环
+        K[用户反馈] --> L[反馈分析]
+        L --> M[知识更新]
+        M --> I
+        L --> N[检索优化]
+        N --> E
+    end
+
+    E1 --> J
+    E4 --> I
+    F --> K
+    B --> G
+    B --> H
+
+    style A fill:#e1f5fe
+    style B fill:#fff3e0
+    style F fill:#f3e5f5
+    style I fill:#e8f5e9
+    style K fill:#fce4ec
+```
+
+### 数据流程
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant A as API 服务
+    participant L as 地名识别
+    participant C as 单位分类
+    participant R as RAG 检索
+    participant G as 回复生成
+    participant K as 知识图谱
+
+    U->>A: 提交留言
+    A->>L: 识别地名
+    L-->>A: 返回地点信息
+    A->>C: 预测单位
+    C-->>A: 返回 Top-K 单位
+    A->>R: 检索相关政策
+    R->>K: 查询图谱事实
+    K-->>R: 返回结构化知识
+    R-->>A: 返回检索结果
+    A->>G: 生成回复
+    G-->>A: 返回政务回复
+    A-->>U: 返回完整分析结果
+```
+
 ## 🚀 快速开始
 
 ### 方式一：Docker 部署（推荐）
