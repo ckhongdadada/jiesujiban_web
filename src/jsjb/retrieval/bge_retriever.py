@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
+import sqlite3
+import threading
+import time
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from src.jsjb.core.paths import get_policy_corpus_path, get_policy_corpus_sample_path
+from src.jsjb.core.paths import get_policy_corpus_path, get_policy_corpus_sample_path, get_feedback_db_path
 
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -29,6 +34,13 @@ try:
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
+
+try:
+    from src.jsjb.knowledge.graph import InMemoryGraph
+
+    GRAPH_AVAILABLE = True
+except ImportError:
+    GRAPH_AVAILABLE = False
 
 
 BEIJING_DISTRICTS = {
@@ -70,7 +82,19 @@ ISSUE_RULES = [
     ("扬尘", "空气质量"),
     ("空气", "空气质量"),
     ("绿化", "园林绿化"),
+    ("供暖", "供暖问题"),
+    ("供热", "供暖问题"),
+    ("充电", "消防安全"),
+    ("电动自行车", "消防安全"),
+    ("无障碍", "无障碍设施"),
+    ("房屋", "房屋安全"),
+    ("外墙", "房屋安全"),
 ]
+
+POLICY_SECTION_PATTERN = re.compile(
+    r"(?:第[一二三四五六七八九十百千]+条|^[一二三四五六七八九十]+[、.．])",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -87,6 +111,455 @@ class RetrievalHit:
     rewrite_count: int = 1
     dense_score: float = 0.0
     sparse_score: float = 0.0
+    rerank_score: float = 0.0
+    feedback_boost: float = 0.0
+    full_content: str = ""
+
+
+@dataclass
+class DocumentChunk:
+    chunk_id: str
+    doc_id: str
+    title: str
+    content: str
+    doc_type: str = "参考材料"
+    district: str = "全市"
+    source: str = "本地知识库"
+    tags: list[str] = field(default_factory=list)
+    issue_type: str = ""
+    unit: str = ""
+    applicable_tags: list[str] = field(default_factory=list)
+    chunk_index: int = 0
+    start_char: int = 0
+    end_char: int = 0
+
+
+class SemanticChunker:
+    """语义分块器 — 按政策条款/段落结构分割"""
+
+    def __init__(self, chunk_size: int = 400, chunk_overlap: int = 60, min_chunk_size: int = 80):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.min_chunk_size = min_chunk_size
+
+    def _split_by_structure(self, text: str) -> list[str]:
+        sections = POLICY_SECTION_PATTERN.split(text)
+        if len(sections) > 2:
+            return [s.strip() for s in sections if s and s.strip()]
+
+        paragraphs = re.split(r"\n{2,}", text)
+        if len(paragraphs) > 1:
+            return [p.strip() for p in paragraphs if p.strip()]
+
+        sentences = re.split(r"([。！？；\n]+)", text)
+        result = []
+        for i in range(0, len(sentences) - 1, 2):
+            if i + 1 < len(sentences):
+                result.append(sentences[i] + sentences[i + 1])
+            else:
+                result.append(sentences[i])
+        if len(sentences) % 2 == 1 and sentences[-1].strip():
+            result.append(sentences[-1])
+        return [s for s in result if s.strip()]
+
+    def chunk_document(self, doc: dict[str, Any]) -> list[DocumentChunk]:
+        content = doc.get("content", "")
+        if len(content) <= self.chunk_size:
+            return [DocumentChunk(
+                chunk_id=f"{doc.get('id', '')}_0",
+                doc_id=doc.get("id", ""),
+                title=doc.get("title", "未命名材料"),
+                content=content,
+                doc_type=doc.get("doc_type", "参考材料"),
+                district=doc.get("district", "全市"),
+                source=doc.get("source", "本地知识库"),
+                tags=doc.get("tags", []),
+                issue_type=doc.get("issue_type", ""),
+                unit=doc.get("unit", ""),
+                applicable_tags=doc.get("applicable_tags", []),
+                chunk_index=0,
+                start_char=0,
+                end_char=len(content),
+            )]
+
+        sections = self._split_by_structure(content)
+        chunks = []
+        current_parts = []
+        current_size = 0
+        chunk_index = 0
+        start_char = 0
+
+        for section in sections:
+            section_size = len(section)
+            if current_size + section_size > self.chunk_size and current_parts:
+                chunk_content = "".join(current_parts)
+                if len(chunk_content) >= self.min_chunk_size:
+                    chunks.append(DocumentChunk(
+                        chunk_id=f"{doc.get('id', '')}_{chunk_index}",
+                        doc_id=doc.get("id", ""),
+                        title=doc.get("title", "未命名材料"),
+                        content=chunk_content,
+                        doc_type=doc.get("doc_type", "参考材料"),
+                        district=doc.get("district", "全市"),
+                        source=doc.get("source", "本地知识库"),
+                        tags=doc.get("tags", []),
+                        issue_type=doc.get("issue_type", ""),
+                        unit=doc.get("unit", ""),
+                        applicable_tags=doc.get("applicable_tags", []),
+                        chunk_index=chunk_index,
+                        start_char=start_char,
+                        end_char=start_char + len(chunk_content),
+                    ))
+                    chunk_index += 1
+                    start_char += len(chunk_content)
+
+                if self.chunk_overlap > 0 and current_parts:
+                    overlap_text = "".join(current_parts)[-self.chunk_overlap:]
+                    current_parts = [overlap_text]
+                    current_size = len(overlap_text)
+                else:
+                    current_parts = []
+                    current_size = 0
+
+            current_parts.append(section)
+            current_size += section_size
+
+        if current_parts:
+            chunk_content = "".join(current_parts)
+            if len(chunk_content) >= self.min_chunk_size:
+                chunks.append(DocumentChunk(
+                    chunk_id=f"{doc.get('id', '')}_{chunk_index}",
+                    doc_id=doc.get("id", ""),
+                    title=doc.get("title", "未命名材料"),
+                    content=chunk_content,
+                    doc_type=doc.get("doc_type", "参考材料"),
+                    district=doc.get("district", "全市"),
+                    source=doc.get("source", "本地知识库"),
+                    tags=doc.get("tags", []),
+                    issue_type=doc.get("issue_type", ""),
+                    unit=doc.get("unit", ""),
+                    applicable_tags=doc.get("applicable_tags", []),
+                    chunk_index=chunk_index,
+                    start_char=start_char,
+                    end_char=start_char + len(chunk_content),
+                ))
+
+        return chunks if chunks else [DocumentChunk(
+            chunk_id=f"{doc.get('id', '')}_0",
+            doc_id=doc.get("id", ""),
+            title=doc.get("title", "未命名材料"),
+            content=content,
+            doc_type=doc.get("doc_type", "参考材料"),
+            district=doc.get("district", "全市"),
+            source=doc.get("source", "本地知识库"),
+            tags=doc.get("tags", []),
+            issue_type=doc.get("issue_type", ""),
+            unit=doc.get("unit", ""),
+            applicable_tags=doc.get("applicable_tags", []),
+            chunk_index=0,
+            start_char=0,
+            end_char=len(content),
+        )]
+
+
+class FeedbackScoreCache:
+    """反馈驱动的文档评分缓存"""
+
+    def __init__(self, db_path: str | None = None):
+        self._db_path = db_path
+        self._scores: dict[str, float] = {}
+        self._last_loaded: float = 0.0
+        self._reload_interval: float = 300.0
+        self._lock = threading.Lock()
+
+    def _try_load(self) -> None:
+        now = time.time()
+        if now - self._last_loaded < self._reload_interval:
+            return
+
+        db_path = self._db_path
+        if not db_path:
+            try:
+                db_path = str(get_feedback_db_path())
+            except Exception:
+                with self._lock:
+                    self._last_loaded = now
+                return
+
+        if not db_path or not os.path.exists(db_path):
+            with self._lock:
+                self._last_loaded = now
+            return
+
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT doc_id, SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END) "
+                "FROM doc_feedback GROUP BY doc_id"
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+            new_scores: dict[str, float] = {}
+            for doc_id, net_votes in rows:
+                new_scores[doc_id] = float(net_votes) * 0.05
+
+            with self._lock:
+                self._scores = new_scores
+                self._last_loaded = now
+        except Exception:
+            with self._lock:
+                self._last_loaded = now
+
+    def get_boost(self, doc_id: str) -> float:
+        self._try_load()
+        with self._lock:
+            return self._scores.get(doc_id, 0.0)
+
+    def record_feedback(self, doc_id: str, is_helpful: bool) -> None:
+        delta = 0.05 if is_helpful else -0.05
+        with self._lock:
+            self._scores[doc_id] = self._scores.get(doc_id, 0.0) + delta
+
+
+class GraphAugmentor:
+    """知识图谱增强查询"""
+
+    def __init__(self):
+        self._graph = None
+        self._loaded = False
+
+    def _ensure_graph(self):
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            from src.jsjb.knowledge.graph import KnowledgeGraphManager
+            mgr = KnowledgeGraphManager()
+            if hasattr(mgr, "graph") and mgr.graph is not None:
+                self._graph = mgr.graph
+        except Exception:
+            try:
+                self._graph = InMemoryGraph()
+            except Exception:
+                pass
+
+    def augment_query_terms(self, query: str, district: str | None = None) -> list[str]:
+        self._ensure_graph()
+        if self._graph is None:
+            return []
+
+        extra_terms: list[str] = []
+        try:
+            if district:
+                for node_type in ("Organization", "organization", "unit"):
+                    nodes = self._graph.find_node(node_type, district=district)
+                    for node_id in nodes[:3]:
+                        node_data = self._graph.nodes.get(node_id, {})
+                        props = node_data.get("properties", {})
+                        if props.get("responsible_unit"):
+                            extra_terms.append(props["responsible_unit"])
+                        if props.get("name"):
+                            extra_terms.append(props["name"])
+
+            for node_type in ("Project", "project"):
+                nodes = self._graph.find_node(node_type)
+                for node_id in nodes[:5]:
+                    node_data = self._graph.nodes.get(node_id, {})
+                    props = node_data.get("properties", {})
+                    name = props.get("name", "")
+                    if name and any(kw in query for kw in name[:4]):
+                        extra_terms.append(name)
+                        if props.get("responsible_unit"):
+                            extra_terms.append(props["responsible_unit"])
+        except Exception:
+            pass
+
+        return extra_terms[:6]
+
+    def verify_fact_consistency(self, doc: dict[str, Any], query: str) -> float:
+        self._ensure_graph()
+        if self._graph is None:
+            return 0.0
+
+        try:
+            content = doc.get("content", "")
+            negation_patterns = ["不存在", "暂未建设", "尚未建设", "未涉及", "不涉及", "无此", "未有"]
+            for pattern in negation_patterns:
+                if pattern in content:
+                    neg_context = content[max(0, content.index(pattern) - 20):content.index(pattern) + 20]
+                    affirmative = ["已建成", "已建设", "正在施工", "正在建设", "已运营", "已开放"]
+                    for aff in affirmative:
+                        if aff in query:
+                            return -0.15
+        except Exception:
+            pass
+
+        return 0.0
+
+    def query_related_facts(self, query: str, district: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
+        self._ensure_graph()
+        if self._graph is None:
+            return []
+
+        results: list[dict[str, Any]] = []
+        try:
+            query_lower = query.lower()
+            visited_ids: set[str] = set()
+
+            for node_id, node_data in list(self._graph.nodes.items()):
+                if len(results) >= limit:
+                    break
+                if node_id in visited_ids:
+                    continue
+                props = node_data.get("properties", {})
+                name = props.get("name", "")
+                if not name:
+                    continue
+
+                node_type = node_data.get("type", "")
+                relevance = 0.0
+
+                if name in query or query in name:
+                    relevance = 0.9
+                elif any(kw in query for kw in name[:4] if len(kw) >= 2):
+                    relevance = 0.5
+                else:
+                    desc = props.get("description", "")
+                    if desc and any(kw in desc for kw in query_lower.split()[:5]):
+                        relevance = 0.3
+
+                if relevance <= 0:
+                    continue
+
+                if district:
+                    node_district = props.get("district", "")
+                    if node_district and node_district not in (district, "北京市", "全市", ""):
+                        relevance *= 0.5
+
+                content_parts = [f"【{node_type}】{name}"]
+                for key in ("status", "description", "responsible_unit", "district", "type"):
+                    val = props.get(key, "")
+                    if val:
+                        content_parts.append(f"{key}: {val}")
+
+                neighbors = self._graph.get_neighbors(node_id) if hasattr(self._graph, "get_neighbors") else []
+                for neighbor_id, rel_type, _ in neighbors[:3]:
+                    neighbor_data = self._graph.nodes.get(neighbor_id, {})
+                    neighbor_name = neighbor_data.get("properties", {}).get("name", "")
+                    if neighbor_name:
+                        content_parts.append(f"{rel_type}: {neighbor_name}")
+
+                visited_ids.add(node_id)
+                results.append({
+                    "id": f"graph_{node_id}",
+                    "title": f"[图谱] {name}",
+                    "content": "\n".join(content_parts),
+                    "doc_type": "知识图谱",
+                    "district": props.get("district", ""),
+                    "source": "knowledge_graph",
+                    "tags": [node_type],
+                    "unit": props.get("responsible_unit", ""),
+                    "issue_type": "",
+                    "applicable_tags": [],
+                    "_graph_relevance": relevance,
+                })
+        except Exception:
+            pass
+
+        results.sort(key=lambda x: x.get("_graph_relevance", 0), reverse=True)
+        return results[:limit]
+
+
+class Reranker:
+    """Cross-Encoder 重排序"""
+
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
+        self.model_name = model_name
+        self.model = None
+        self.tokenizer = None
+        self._loaded = False
+        self._load_failed = False
+
+    def _try_load(self) -> bool:
+        if self._loaded:
+            return self.model is not None
+        if self._load_failed:
+            return False
+        self._loaded = True
+
+        try:
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+            import torch
+
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            local_path = os.path.join(base_dir, "reranker_models", self.model_name.replace("/", "___"))
+
+            if os.path.exists(local_path):
+                self.model = AutoModelForSequenceClassification.from_pretrained(local_path)
+                self.tokenizer = AutoTokenizer.from_pretrained(local_path)
+            else:
+                self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+
+            self.model.eval()
+            if torch.cuda.is_available():
+                self.model = self.model.cuda()
+            return True
+        except Exception as exc:
+            print(f"[RAG Reranker] 加载失败，将跳过重排序: {exc}")
+            self._load_failed = True
+            return False
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[tuple[float, dict[str, Any], list[str], int]],
+        top_k: int = 5,
+    ) -> list[tuple[float, dict[str, Any], list[str], int]]:
+        if not self._try_load() or not candidates:
+            return candidates[:top_k]
+
+        try:
+            import torch
+
+            pairs = []
+            for score, doc, matched, idx in candidates:
+                snippet = doc.get("content", "")[:512]
+                pairs.append([query, snippet])
+
+            inputs = self.tokenizer(
+                pairs,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            )
+
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+
+            with torch.no_grad():
+                logits = self.model(**inputs).logits.squeeze(-1)
+
+            if logits.dim() == 0:
+                rerank_scores = [float(logits)]
+            else:
+                rerank_scores = logits.sigmoid().cpu().numpy().tolist()
+
+            scored = []
+            for i, (base_score, doc, matched, idx) in enumerate(candidates):
+                rs = float(rerank_scores[i]) if i < len(rerank_scores) else 0.0
+                combined = 0.4 * base_score + 0.6 * rs
+                scored.append((combined, doc, matched, idx))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return scored[:top_k]
+        except Exception as exc:
+            print(f"[RAG Reranker] 重排序失败: {exc}")
+            return candidates[:top_k]
 
 
 class PolicyRetriever:
@@ -98,6 +571,13 @@ class PolicyRetriever:
         multi_query_count=None,
         dense_weight=None,
         sparse_weight=None,
+        enable_chunking=None,
+        chunk_size=None,
+        chunk_overlap=None,
+        enable_reranker=None,
+        enable_graph_augment=None,
+        enable_feedback_boost=None,
+        enable_post_processing=None,
     ):
         default_corpus_path = get_policy_corpus_path()
         if not default_corpus_path.exists():
@@ -132,6 +612,54 @@ class PolicyRetriever:
             os.getenv("RAG_SPARSE_WEIGHT", "0.32"),
             default=0.32,
         )
+
+        self.enable_chunking = self._resolve_bool(
+            enable_chunking,
+            os.getenv("RAG_ENABLE_CHUNKING", "true"),
+        )
+        self.chunk_size = self._resolve_int(
+            chunk_size,
+            os.getenv("RAG_CHUNK_SIZE", "400"),
+            minimum=100,
+            maximum=1000,
+        )
+        self.chunk_overlap = self._resolve_int(
+            chunk_overlap,
+            os.getenv("RAG_CHUNK_OVERLAP", "60"),
+            minimum=0,
+            maximum=200,
+        )
+
+        self.enable_reranker = self._resolve_bool(
+            enable_reranker,
+            os.getenv("RAG_ENABLE_RERANKER", "true"),
+        )
+        self.enable_graph_augment = self._resolve_bool(
+            enable_graph_augment,
+            os.getenv("RAG_ENABLE_GRAPH_AUGMENT", "true"),
+        )
+        self.enable_feedback_boost = self._resolve_bool(
+            enable_feedback_boost,
+            os.getenv("RAG_ENABLE_FEEDBACK_BOOST", "true"),
+        )
+        self.enable_post_processing = self._resolve_bool(
+            enable_post_processing,
+            os.getenv("RAG_ENABLE_POST_PROCESSING", "true"),
+        )
+
+        self.chunks: list[DocumentChunk] = []
+        self.chunk_vectors = None
+        self.chunk_sparse_vectors = None
+        self.chunk_doc_map: dict[int, int] = {}
+        self._chunker = SemanticChunker(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+
+        self._reranker = Reranker() if self.enable_reranker else None
+        self._graph_augmentor = GraphAugmentor() if self.enable_graph_augment else None
+        self._feedback_cache = FeedbackScoreCache() if self.enable_feedback_boost else None
+
         self._build_index()
 
     @staticmethod
@@ -188,12 +716,32 @@ class PolicyRetriever:
         normalized["applicable_tags"] = [str(tag) for tag in normalized.get("applicable_tags", [])]
         return normalized
 
+    def _build_chunk_index(self):
+        self.chunks = []
+        self.chunk_doc_map = {}
+        for doc_idx, doc in enumerate(self.docs):
+            doc_chunks = self._chunker.chunk_document(doc)
+            for chunk in doc_chunks:
+                chunk_idx = len(self.chunks)
+                self.chunks.append(chunk)
+                self.chunk_doc_map[chunk_idx] = doc_idx
+        print(f"[RAG] 语义分块完成: {len(self.docs)} 文档 → {len(self.chunks)} 块")
+
     def _build_index(self):
         if not self.docs:
             self.active_backend = "empty"
             return
 
-        corpus = [self._compose_doc_text(doc) for doc in self.docs]
+        if self.enable_chunking:
+            self._build_chunk_index()
+
+        use_chunks = self.enable_chunking and len(self.chunks) > 0
+        corpus_items = self.chunks if use_chunks else self.docs
+        corpus = [
+            (self._compose_chunk_text(c) if isinstance(c, DocumentChunk) else self._compose_doc_text(c))
+            for c in corpus_items
+        ]
+
         dense_ready = False
         sparse_ready = False
 
@@ -203,25 +751,36 @@ class PolicyRetriever:
                     "BAAI/bge-small-zh-v1.5",
                     device="cuda" if os.getenv("USE_CUDA", "true").lower() == "true" else "cpu",
                 )
-                self.dense_doc_vectors = self.embedding_model.encode(
+                vectors = self.embedding_model.encode(
                     corpus,
                     normalize_embeddings=True,
                     show_progress_bar=False,
                 )
+                if use_chunks:
+                    self.chunk_vectors = vectors
+                    self.dense_doc_vectors = self._aggregate_chunk_vectors_to_docs(vectors)
+                else:
+                    self.dense_doc_vectors = vectors
                 dense_ready = True
             except Exception as exc:
                 print("[RAG] BGE 初始化失败，回退到 TF-IDF:", exc)
 
         if SKLEARN_AVAILABLE:
             self.sparse_vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=1)
-            self.sparse_doc_vectors = self.sparse_vectorizer.fit_transform(corpus)
+            sparse_vectors = self.sparse_vectorizer.fit_transform(corpus)
+            if use_chunks:
+                self.chunk_sparse_vectors = sparse_vectors
+                self.sparse_doc_vectors = self._aggregate_chunk_sparse_to_docs(sparse_vectors)
+            else:
+                self.sparse_doc_vectors = sparse_vectors
             self.vectorizer = self.sparse_vectorizer
             sparse_ready = True
 
         if dense_ready and sparse_ready and self.requested_backend == "hybrid":
             self.doc_vectors = self.dense_doc_vectors
             self.active_backend = "hybrid"
-            print("[RAG] 使用 Hybrid 检索（BGE稠密 + TF-IDF稀疏），文档数:", len(self.docs))
+            mode = "分块" if use_chunks else "整文档"
+            print(f"[RAG] 使用 Hybrid 检索（BGE稠密 + TF-IDF稀疏，{mode}），文档数:", len(self.docs))
         elif dense_ready:
             self.doc_vectors = self.dense_doc_vectors
             self.active_backend = "bge"
@@ -234,6 +793,29 @@ class PolicyRetriever:
             self.active_backend = "empty"
             print("[RAG] 无可用检索后端")
 
+    def _aggregate_chunk_vectors_to_docs(self, chunk_vectors) -> np.ndarray:
+        if not NUMPY_AVAILABLE:
+            return chunk_vectors
+        doc_count = len(self.docs)
+        doc_vectors = np.zeros((doc_count, chunk_vectors.shape[1]), dtype=np.float32)
+        for chunk_idx, doc_idx in self.chunk_doc_map.items():
+            doc_vectors[doc_idx] += chunk_vectors[chunk_idx]
+        norms = np.linalg.norm(doc_vectors, axis=1, keepdims=True)
+        norms = np.where(norms < 1e-9, 1.0, norms)
+        doc_vectors /= norms
+        return doc_vectors
+
+    def _aggregate_chunk_sparse_to_docs(self, chunk_sparse_vectors):
+        if not SKLEARN_AVAILABLE:
+            return chunk_sparse_vectors
+        doc_count = len(self.docs)
+        n_features = chunk_sparse_vectors.shape[1]
+        from scipy.sparse import lil_matrix
+        doc_vectors = lil_matrix((doc_count, n_features))
+        for chunk_idx, doc_idx in self.chunk_doc_map.items():
+            doc_vectors[doc_idx] += chunk_sparse_vectors[chunk_idx]
+        return doc_vectors.tocsr()
+
     def _compose_doc_text(self, doc):
         parts = [
             doc.get("title", ""),
@@ -244,6 +826,20 @@ class PolicyRetriever:
             doc.get("issue_type", ""),
             doc.get("unit", ""),
             " ".join(doc.get("applicable_tags", [])),
+        ]
+        return "\n".join(part for part in parts if part)
+
+    @staticmethod
+    def _compose_chunk_text(chunk: DocumentChunk) -> str:
+        parts = [
+            chunk.title,
+            chunk.content,
+            " ".join(chunk.tags),
+            chunk.district,
+            chunk.doc_type,
+            chunk.issue_type,
+            chunk.unit,
+            " ".join(chunk.applicable_tags),
         ]
         return "\n".join(part for part in parts if part)
 
@@ -265,6 +861,13 @@ class PolicyRetriever:
         if unit:
             terms.append(unit)
         terms.extend(re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]{2,12}", query))
+
+        if self._graph_augmentor:
+            try:
+                graph_terms = self._graph_augmentor.augment_query_terms(query, district=district)
+                terms.extend(graph_terms)
+            except Exception:
+                pass
 
         deduped = []
         for term in terms:
@@ -420,8 +1023,6 @@ class PolicyRetriever:
         if semantic_terms:
             boosted += min(len(semantic_terms) * 0.09, 0.36)
         elif district and doc_district == district:
-            # Same-district documents with no issue-level overlap are often less useful
-            # than cross-district cases about the same problem.
             boosted -= 0.18
 
         if district and matched_terms:
@@ -429,7 +1030,65 @@ class PolicyRetriever:
             if locality_terms:
                 boosted += 0.04
 
+        if self._feedback_cache:
+            try:
+                fb = self._feedback_cache.get_boost(doc.get("id", ""))
+                boosted += fb
+            except Exception:
+                pass
+
+        if self._graph_augmentor:
+            try:
+                graph_penalty = self._graph_augmentor.verify_fact_consistency(doc, " ".join(query_terms))
+                boosted += graph_penalty
+            except Exception:
+                pass
+
         return boosted, matched_terms
+
+    def _post_process_results(
+        self,
+        results: list[dict[str, Any]],
+        query: str,
+        query_terms: list[str],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        if not results or not self.enable_post_processing:
+            return results[:top_k]
+
+        deduped = []
+        seen_titles = set()
+        for hit in results:
+            title = hit.get("title", "")
+            if title in seen_titles:
+                continue
+            seen_titles.add(title)
+            deduped.append(hit)
+
+        type_count: dict[str, int] = defaultdict(int)
+        diverse = []
+        fallback = []
+        for hit in deduped:
+            dt = hit.get("doc_type", "参考材料")
+            type_count[dt] += 1
+            diverse.append(hit)
+            if type_count[dt] > top_k:
+                fallback.append(hit)
+
+        if len(diverse) < top_k and fallback:
+            diverse.extend(fallback[:top_k - len(diverse)])
+
+        return diverse[:top_k]
+
+    @staticmethod
+    def _is_fact_contradictory(doc: dict[str, Any], query: str) -> bool:
+        content = doc.get("content", "")
+        negation_patterns = ["不存在", "暂未建设", "尚未建设", "未涉及", "不涉及", "无此", "未有"]
+        has_negation = any(p in content for p in negation_patterns)
+        if not has_negation:
+            return False
+        affirmation = ["已建成", "已建设", "正在施工", "正在建设", "已运营", "已开放", "已完成"]
+        return any(a in query for a in affirmation)
 
     def search(
         self,
@@ -472,15 +1131,44 @@ class PolicyRetriever:
 
         ranked_items.sort(key=lambda item: (item[0], item[1]), reverse=True)
 
+        candidate_count = max(top_k * 6, 20)
+        if self._reranker and self.enable_reranker:
+            candidate_count = max(top_k * 4, 12)
+
+        candidates = []
         seen_keys = set()
-        results = []
-        for score, _, matched_terms, doc, idx in ranked_items[: max(top_k * 6, 20)]:
+        for score, _, matched_terms, doc, idx in ranked_items[:candidate_count]:
             if score <= 0:
+                continue
+            if self.enable_post_processing and self._is_fact_contradictory(doc, query):
                 continue
             dedup_key = (doc.get("title", ""), doc.get("source", ""))
             if dedup_key in seen_keys:
                 continue
             seen_keys.add(dedup_key)
+            candidates.append((score, doc, matched_terms, idx))
+
+        if self._reranker and self.enable_reranker and len(candidates) > top_k:
+            try:
+                reranked = self._reranker.rerank(query, candidates, top_k=max(top_k * 2, 10))
+                candidates = reranked
+            except Exception:
+                pass
+
+        results = []
+        for item in candidates[:max(top_k * 3, 15)]:
+            if len(item) == 4:
+                score, doc, matched_terms, idx = item
+            else:
+                score, doc, matched_terms, idx = item[0], item[1], item[2], item[3]
+
+            fb = 0.0
+            if self._feedback_cache:
+                try:
+                    fb = self._feedback_cache.get_boost(doc.get("id", ""))
+                except Exception:
+                    pass
+
             hit = RetrievalHit(
                 doc_id=doc.get("id", ""),
                 title=doc.get("title", "未命名材料"),
@@ -492,12 +1180,43 @@ class PolicyRetriever:
                 matched_terms=matched_terms,
                 retrieval_backend=self.active_backend,
                 rewrite_count=len(rewritten_queries),
-                dense_score=round(float(dense_scores[idx]), 4),
-                sparse_score=round(float(sparse_scores[idx]), 4),
+                dense_score=round(float(dense_scores[idx]), 4) if idx < len(dense_scores) else 0.0,
+                sparse_score=round(float(sparse_scores[idx]), 4) if idx < len(sparse_scores) else 0.0,
+                full_content=doc.get("content", ""),
+                rerank_score=round(score, 4) if self._reranker else 0.0,
+                feedback_boost=round(fb, 4),
             )
             results.append(asdict(hit))
-            if len(results) >= top_k:
-                break
+
+        if self.enable_graph_augment and self._graph_augmentor:
+            try:
+                graph_facts = self._graph_augmentor.query_related_facts(query, district=district, limit=max(1, top_k // 2))
+                seen_ids = {r["doc_id"] for r in results}
+                for fact in graph_facts:
+                    if fact["id"] in seen_ids:
+                        continue
+                    graph_hit = RetrievalHit(
+                        doc_id=fact["id"],
+                        title=fact["title"],
+                        doc_type=fact["doc_type"],
+                        district=fact["district"],
+                        source=fact["source"],
+                        score=round(fact.get("_graph_relevance", 0.5), 4),
+                        snippet=fact["content"][:160] + ("..." if len(fact["content"]) > 160 else ""),
+                        matched_terms=[],
+                        retrieval_backend="knowledge_graph",
+                        rewrite_count=0,
+                        dense_score=0.0,
+                        sparse_score=0.0,
+                        rerank_score=0.0,
+                        feedback_boost=0.0,
+                        full_content=fact["content"],
+                    )
+                    results.append(asdict(graph_hit))
+            except Exception:
+                pass
+
+        results = self._post_process_results(results, query, query_terms, top_k)
         return results
 
     def describe(self):
@@ -505,16 +1224,39 @@ class PolicyRetriever:
             "requested_backend": self.requested_backend,
             "active_backend": self.active_backend,
             "document_count": len(self.docs),
+            "chunk_count": len(self.chunks),
             "corpus_path": self.corpus_path,
             "sentence_transformers_available": SENTENCE_TRANSFORMERS_AVAILABLE,
             "sklearn_available": SKLEARN_AVAILABLE,
             "numpy_available": NUMPY_AVAILABLE,
+            "graph_available": GRAPH_AVAILABLE,
             "dense_index_available": self.dense_doc_vectors is not None,
             "sparse_index_available": self.sparse_doc_vectors is not None,
             "query_rewrite_enabled": self.enable_query_rewrite,
             "multi_query_count": self.multi_query_count,
             "dense_weight": self.dense_weight,
             "sparse_weight": self.sparse_weight,
+            "chunking_enabled": self.enable_chunking,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "reranker_enabled": self.enable_reranker,
+            "graph_augment_enabled": self.enable_graph_augment,
+            "feedback_boost_enabled": self.enable_feedback_boost,
+            "post_processing_enabled": self.enable_post_processing,
+        }
+
+    def reload(self) -> dict[str, Any]:
+        old_count = len(self.docs)
+        old_chunk_count = len(self.chunks)
+        self.docs = self._load_docs(self.corpus_path)
+        self._build_index()
+        return {
+            "status": "ok",
+            "old_document_count": old_count,
+            "new_document_count": len(self.docs),
+            "old_chunk_count": old_chunk_count,
+            "new_chunk_count": len(self.chunks),
+            "active_backend": self.active_backend,
         }
 
 

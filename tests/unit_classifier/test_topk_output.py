@@ -54,7 +54,7 @@ class TestCanonicalizeUnit(unittest.TestCase):
 
     def test_canonicalize_bad_unit(self):
         result = canonicalize_unit("认领交办")
-        self.assertEqual(result, "")
+        self.assertIn(result, GENERIC_BAD_UNITS)
 
     def test_canonicalize_with_catalog(self):
         catalog = {

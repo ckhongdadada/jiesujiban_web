@@ -664,6 +664,64 @@ main {
   color: var(--ink-muted);
 }
 
+/* ── Evidence strength & reply mode badges ── */
+.reply-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.evidence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+  background: var(--white);
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+.evidence-badge.strong {
+  border-color: #a3d9b1;
+  background: var(--green-light);
+  color: var(--green);
+}
+.evidence-badge.moderate {
+  border-color: #e0c97f;
+  background: var(--gold-light);
+  color: var(--gold);
+}
+.evidence-badge.weak, .evidence-badge.none {
+  border-color: #efb4ad;
+  background: var(--red-light);
+  color: var(--red);
+}
+.evidence-badge .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.evidence-badge.strong .dot { background: var(--green); }
+.evidence-badge.moderate .dot { background: var(--gold); }
+.evidence-badge.weak .dot, .evidence-badge.none .dot { background: var(--red); }
+.reply-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+  background: var(--blue-light);
+  color: var(--blue);
+  line-height: 1.4;
+}
+
 /* ── Error ── */
 .error-box {
   display: none;
@@ -892,6 +950,37 @@ footer {
   main { grid-template-columns: 1fr; padding: 24px 16px 60px; }
   header { padding: 0 20px; }
 }
+
+/* ── Knowledge Graph Demo ── */
+.kg-demo-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.kg-demo-toolbar select {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  background: var(--white);
+  font-family: var(--serif);
+  font-size: 14px;
+}
+.kg-demo-content {
+  background: var(--paper);
+  border-left: 3px solid var(--blue);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+.kg-demo-content strong {
+  color: var(--ink);
+}
+.kg-demo-stage {
+  margin-bottom: 6px;
+}
 </style>
 </head>
 <body>
@@ -997,6 +1086,10 @@ footer {
       <div class="reply-box" id="replyBox">
         <span class="result-empty">等待分析...</span>
       </div>
+      <div class="reply-meta-row" id="replyMetaRow" style="display:none">
+        <span class="evidence-badge" id="evidenceBadge"><span class="dot"></span><span id="evidenceText">—</span></span>
+        <span class="reply-mode-badge" id="replyModeBadge">—</span>
+      </div>
       <button class="copy-btn" id="copyBtn" onclick="copyReply()" style="display:none">复制回复内容</button>
     </div>
 
@@ -1071,7 +1164,40 @@ footer {
       <textarea id="kgReviewNotesInput" class="kg-review-notes" placeholder="审核备注（可选，例如：证据充分 / 证据不足 / 表述过泛）"></textarea>
       <div class="processing-time" id="kgReviewHint">这里会显示等待入图谱的结构化事实，只有审核通过后才会真正写入知识图谱。</div>
       <div class="kg-review-list" id="kgReviewList">
-        <div class="result-empty">点击“刷新候选事实”加载待审核条目...</div>
+        <div class="result-empty">点击"刷新候选事实"加载待审核条目...</div>
+      </div>
+    </div>
+
+    <div class="result-block" id="kgDemoBlock">
+      <div class="reply-label">知识图谱 Demo 流程</div>
+      <div class="kg-demo-toolbar">
+        <select id="kgDemoCaseSelect">
+          <option value="-1">-- 选择预设案例 --</option>
+          <option value="0">老旧小区改造（朝阳区）</option>
+          <option value="1">道路积水投诉（海淀区）</option>
+          <option value="2">广场舞噪声扰民（丰台区）</option>
+        </select>
+        <button class="kg-review-btn" onclick="runKgDemo()">运行 Demo</button>
+      </div>
+      <textarea id="kgDemoTextInput" class="kg-review-notes" placeholder="或输入自定义留言文本..." rows="3"></textarea>
+      <div class="processing-time" id="kgDemoHint">选择预设案例或输入自定义文本，点击"运行 Demo"查看知识图谱主流程：事实提取 → 图谱查询 → 审核验证 → 知识入库</div>
+      <div id="kgDemoResult" style="display:none">
+        <div class="kg-demo-stage" id="kgDemoEntities" style="display:none">
+          <div class="reply-label" style="font-size:0.85rem">阶段1：事实提取</div>
+          <div id="kgDemoEntitiesContent" class="kg-demo-content"></div>
+        </div>
+        <div class="kg-demo-stage" id="kgDemoGraph" style="display:none">
+          <div class="reply-label" style="font-size:0.85rem">阶段2：图谱查询</div>
+          <div id="kgDemoGraphContent" class="kg-demo-content"></div>
+        </div>
+        <div class="kg-demo-stage" id="kgDemoAudit" style="display:none">
+          <div class="reply-label" style="font-size:0.85rem">阶段3：审核验证</div>
+          <div id="kgDemoAuditContent" class="kg-demo-content"></div>
+        </div>
+        <div class="kg-demo-stage" id="kgDemoWrite" style="display:none">
+          <div class="reply-label" style="font-size:0.85rem">阶段4：知识入库</div>
+          <div id="kgDemoWriteContent" class="kg-demo-content"></div>
+        </div>
       </div>
     </div>
 
@@ -1159,6 +1285,7 @@ async function handleSubmit() {
     renderLocation(data.location);
     renderUnits(currentUnits, 0);
     renderReply(data.reply, currentUnits[0]?.unit || '');
+    renderReplyMeta(data.evidence_strength, data.reply_mode);
     renderRag(data.retrieval || []);
     renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
@@ -1204,6 +1331,7 @@ async function selectUnit(idx) {
     lastNeedsReview = !!data.needs_review;
     lastProcessingTime = data.processing_time || null;
     renderReply(data.reply, unit);
+    renderReplyMeta(data.evidence_strength, data.reply_mode);
     renderRag(data.retrieval || []);
     renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
@@ -1248,6 +1376,7 @@ async function useCustomUnit() {
     lastNeedsReview = !!data.needs_review;
     lastProcessingTime = data.processing_time || null;
     renderReply(data.reply, customUnit);
+    renderReplyMeta(data.evidence_strength, data.reply_mode);
     renderRag(data.retrieval || []);
     renderVerification(lastVerification, lastNeedsReview, lastProcessingTime);
     showFeedbackSection();
@@ -1311,6 +1440,27 @@ function renderReply(text, unit) {
   copyBtn.style.display = 'inline-block';
   copyBtn.classList.remove('copied');
   copyBtn.textContent = '复制回复内容';
+}
+
+function renderReplyMeta(evidenceStrength, replyMode) {
+  const row = document.getElementById('replyMetaRow');
+  const badge = document.getElementById('evidenceBadge');
+  const text = document.getElementById('evidenceText');
+  const modeBadge = document.getElementById('replyModeBadge');
+
+  row.style.display = 'flex';
+
+  const labels = {
+    strong: '证据充分',
+    moderate: '证据一般',
+    weak: '证据不足',
+    none: '无匹配证据',
+  };
+  const strength = evidenceStrength || 'none';
+  badge.className = 'evidence-badge ' + strength;
+  text.textContent = labels[strength] || strength;
+
+  modeBadge.textContent = replyMode || '—';
 }
 
 function renderRag(items) {
@@ -1568,6 +1718,99 @@ async function reviewKnowledgeGraphCandidate(candidateId, action) {
   } catch (e) {
     console.error('审核知识图谱候选事实失败:', e);
     hint.textContent = `审核失败：${e.message || e}`;
+  }
+}
+
+async function runKgDemo() {
+  const caseIdx = parseInt(document.getElementById('kgDemoCaseSelect').value);
+  const customText = document.getElementById('kgDemoTextInput').value.trim();
+  const hint = document.getElementById('kgDemoHint');
+  const resultDiv = document.getElementById('kgDemoResult');
+
+  const text = customText;
+  const district = '';
+
+  if (!text && caseIdx < 0) {
+    hint.textContent = '请选择预设案例或输入自定义文本';
+    return;
+  }
+
+  hint.textContent = '正在运行知识图谱 Demo 流程...';
+  resultDiv.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/knowledge-graph/demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: text,
+        district: district,
+        case_index: caseIdx
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || '运行失败');
+    }
+
+    const report = data.report;
+    resultDiv.style.display = 'block';
+
+    if (report.entities) {
+      const el = document.getElementById('kgDemoEntities');
+      const content = document.getElementById('kgDemoEntitiesContent');
+      el.style.display = 'block';
+      const e = report.entities;
+      content.innerHTML = `
+        <strong>项目:</strong> ${e.projects || 0} 个 &nbsp;
+        <strong>地点:</strong> ${e.locations || 0} 个 &nbsp;
+        <strong>单位:</strong> ${e.organizations || 0} 个 &nbsp;
+        <strong>政策:</strong> ${e.policies || 0} 个 &nbsp;
+        <strong>关系:</strong> ${e.relationships || 0} 条
+      `;
+    }
+
+    if (report.graph_context) {
+      const el = document.getElementById('kgDemoGraph');
+      const content = document.getElementById('kgDemoGraphContent');
+      el.style.display = 'block';
+      const g = report.graph_context;
+      content.innerHTML = `
+        <strong>责任链:</strong> ${g.responsibility_chains || 0} 条 &nbsp;
+        <strong>已知项目:</strong> ${g.known_projects || 0} 个 &nbsp;
+        <strong>相似案例:</strong> ${g.similar_cases || 0} 条
+      `;
+    }
+
+    if (report.audit) {
+      const el = document.getElementById('kgDemoAudit');
+      const content = document.getElementById('kgDemoAuditContent');
+      el.style.display = 'block';
+      const a = report.audit;
+      content.innerHTML = `
+        <strong style="color:var(--green)">通过:</strong> ${a.approved || 0} 条 &nbsp;
+        <strong style="color:var(--red)">拒绝:</strong> ${a.rejected || 0} 条 &nbsp;
+        <strong style="color:var(--gold)">待审:</strong> ${a.needs_review || 0} 条 &nbsp;
+        <strong>冲突:</strong> ${a.conflicts || 0} 条
+      `;
+    }
+
+    if (report.write) {
+      const el = document.getElementById('kgDemoWrite');
+      const content = document.getElementById('kgDemoWriteContent');
+      el.style.display = 'block';
+      const w = report.write;
+      content.innerHTML = `
+        <strong>图谱节点:</strong> ${w.graph_nodes_added || 0} 个 &nbsp;
+        <strong>图谱关系:</strong> ${w.graph_edges_added || 0} 条 &nbsp;
+        <strong>知识库事实:</strong> ${w.kb_facts_added || 0} 条
+      `;
+    }
+
+    hint.textContent = 'Demo 流程运行完成';
+  } catch (e) {
+    console.error('知识图谱 Demo 运行失败:', e);
+    hint.textContent = `运行失败：${e.message || e}`;
   }
 }
 

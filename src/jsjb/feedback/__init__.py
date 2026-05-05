@@ -1,2 +1,11 @@
-﻿"""Feedback module public exports."""
-from src.jsjb.feedback.repository import *  # noqa: F401,F403
+from src.jsjb.feedback.repository import (
+    FeedbackDatabase,
+    get_feedback_database,
+    init_feedback_db,
+)
+
+__all__ = [
+    "FeedbackDatabase",
+    "get_feedback_database",
+    "init_feedback_db",
+]

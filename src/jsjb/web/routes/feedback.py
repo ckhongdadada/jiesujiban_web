@@ -184,3 +184,20 @@ def register_feedback_routes(
         except Exception as e:
             logger.error(f"[feedback_search] {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.route("/api/feedback/doc", methods=["POST"])
+    def doc_feedback():
+        try:
+            data = request.get_json(force=True)
+            doc_id = data.get("doc_id", "")
+            is_helpful = data.get("is_helpful", True)
+            query = data.get("query", "")
+
+            if not doc_id:
+                return jsonify({"status": "error", "message": "doc_id is required"}), 400
+
+            feedback_db.record_doc_feedback(doc_id, is_helpful, query)
+            return jsonify({"status": "ok", "doc_id": doc_id})
+        except Exception as e:
+            logger.error(f"[doc_feedback] {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500

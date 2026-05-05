@@ -1,6 +1,33 @@
-﻿# 接诉即办智能服务系统
+# 接诉即办智能服务系统
 
 这是一个面向政务留言的智能分析与回复生成系统。系统围绕一条主流程工作：输入市民留言，识别发生地点，预测回复单位，检索相关政策/案例，最后由 Qwen + LoRA 生成政务回复，并记录用户反馈用于后续主动学习和知识更新。
+
+## 快速开始
+
+### 方式一：Docker 部署（推荐）
+
+```bash
+# 1. 准备模型文件到 models/ 目录
+# 2. 启动服务
+./docker-deploy.sh up    # Linux/Mac
+.\docker-deploy.bat up   # Windows
+
+# 3. 访问服务
+# http://localhost:5000
+```
+
+详细说明请参阅 [Docker部署指南.md](docs/Docker部署指南.md)
+
+### 方式二：本地运行
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+pip install -r requirements_optional_rag_ner.txt
+
+# 启动服务
+python app.py
+```
 
 ## 当前主入口
 

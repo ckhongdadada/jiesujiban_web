@@ -6,6 +6,42 @@ import json
 
 from flask import jsonify, request
 
+from src.jsjb.knowledge.demo_pipeline import run_demo_pipeline
+
+
+DEMO_CASES = [
+    {
+        "name": "老旧小区改造",
+        "text": (
+            "朝阳区望京街道花家地西里小区居民反映，小区内多栋楼外墙脱落严重，"
+            "存在安全隐患。该小区建于1998年，属于老旧小区综合整治范围。"
+            "朝阳区住建委已将该项目列入2026年改造计划，预计2026年6月开工，"
+            "由朝阳区房管局负责实施，预算约3500万元。"
+        ),
+        "district": "朝阳区",
+    },
+    {
+        "name": "道路积水投诉",
+        "text": (
+            "海淀区中关村南大街与四通桥交叉口，每逢大雨必积水，"
+            "严重影响周边居民出行。海淀区水务局应当排查该路段排水设施，"
+            "联系养护单位紧急修复。根据《北京市排水条例》相关规定，"
+            "市水务局负责全市排水设施的监督管理工作。"
+        ),
+        "district": "海淀区",
+    },
+    {
+        "name": "广场舞噪声扰民",
+        "text": (
+            "丰台区方庄街道芳古园小区居民投诉，每天晚上7点到9点，"
+            "小区广场有人跳广场舞，音量过大，影响周围居民休息。"
+            "丰台区公安分局已多次出警劝导，但效果不佳。"
+            "建议协调社区居委会制定文明公约，限制活动时间和音量。"
+        ),
+        "district": "丰台区",
+    },
+]
+
 
 def register_knowledge_review_routes(
     app,
@@ -69,3 +105,48 @@ def register_knowledge_review_routes(
         except Exception as e:
             logger.error(f"[knowledge_graph_review_candidate] {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.route("/api/knowledge-graph/demo", methods=["POST"])
+    def knowledge_graph_demo():
+        try:
+            payload = request.get_json(force=True) or {}
+            text = payload.get("text", "").strip()
+            district = payload.get("district", "").strip()
+            case_idx = payload.get("case_index", -1)
+
+            if not text and 0 <= case_idx < len(DEMO_CASES):
+                case = DEMO_CASES[case_idx]
+                text = case["text"]
+                district = district or case["district"]
+
+            if not text:
+                return jsonify({"status": "error", "message": "请提供文本或选择预设案例"}), 400
+
+            report = run_demo_pipeline(
+                complaint_text=text,
+                district=district,
+            )
+
+            serializable = _make_serializable(report)
+            return jsonify({"status": "ok", "report": serializable})
+        except Exception as e:
+            logger.error(f"[knowledge_graph_demo] {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.route("/api/knowledge-graph/demo-cases", methods=["GET"])
+    def knowledge_graph_demo_cases():
+        cases = [
+            {"index": i, "name": c["name"], "district": c["district"], "preview": c["text"][:60] + "..."}
+            for i, c in enumerate(DEMO_CASES)
+        ]
+        return jsonify({"status": "ok", "cases": cases})
+
+
+def _make_serializable(obj):
+    if isinstance(obj, dict):
+        return {str(k): _make_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_serializable(item) for item in obj]
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    return str(obj)

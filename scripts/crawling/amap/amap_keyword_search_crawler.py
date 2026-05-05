@@ -6,90 +6,82 @@ import os
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import requests
 
 DISTRICTS = [
-    "???",
-    "???",
-    "???",
-    "???",
-    "????",
-    "???",
-    "????",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
+    "东城区",
+    "西城区",
+    "朝阳区",
+    "丰台区",
+    "石景山区",
+    "海淀区",
+    "门头沟区",
+    "房山区",
+    "通州区",
+    "顺义区",
+    "昌平区",
+    "大兴区",
+    "怀柔区",
+    "平谷区",
+    "密云区",
+    "延庆区",
 ]
 
 COMMUNITY_KEYWORDS = [
-    "??",
-    "??",
-    "??",
-    "?",
-    "?",
-    "?",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "?",
-    "?",
-    "?",
-    "?",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "???",
-    "??",
-    "??",
-    "??",
-    "???",
-    "???",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "???",
-    "???",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
-    "??",
+    "小区",
+    "家园",
+    "佳苑",
+    "花园",
+    "公寓",
+    "社区",
+    "新村",
+    "嘉园",
+    "名苑",
+    "西里",
+    "东里",
+    "南里",
+    "北里",
+    "一区",
+    "二区",
+    "三区",
+    "四区",
+    "五区",
+    "六区",
+    "七区",
+    "八区",
+    "九区",
+    "十区",
+    "一号院",
+    "二号院",
+    "三号院",
+    "生活区",
+    "住宅区",
+    "家属院",
+    "宿舍",
+    "公馆",
+    "华府",
+    "府邸",
+    "大院",
+    "别墅",
+    "名居",
+    "雅苑",
+    "锦园",
+    "丽景",
+    "绿洲",
+    "都市",
+    "城",
+    "湾",
+    "苑",
+    "园",
+    "里",
+    "院",
+    "庄",
+    "台",
+    "轩",
 ]
 
 ENDPOINT = "https://restapi.amap.com/v3/place/text"
@@ -306,20 +298,22 @@ def compute_remaining_pages(state: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> None:
-    project_root = os.path.dirname(os.path.dirname(__file__))
-    data_dir = os.path.join(project_root, "data")
-    api_key = os.getenv("AMAP_API_KEY", "2702f59ae73556e5b4029b4a8eaf1310").strip()
+    project_root = Path(__file__).resolve().parents[3]
+    data_dir = project_root / "data" / "raw" / "amap"
+    api_key = os.getenv("AMAP_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("AMAP_API_KEY is required")
 
-    state_path = os.path.join(data_dir, "amap_community_bulk_state.json")
-    raw_output_path = os.path.join(data_dir, "amap_community_bulk_records.jsonl")
-    progress_path = os.path.join(data_dir, "amap_community_bulk_progress.json")
+    state_path = str(data_dir / "amap_community_bulk_state.json")
+    raw_output_path = str(data_dir / "amap_community_bulk_records.jsonl")
+    progress_path = str(data_dir / "amap_community_bulk_progress.json")
 
     existing_state = extract_existing_state(
         [
-            os.path.join(data_dir, "beijing_place_records.jsonl"),
-            os.path.join(data_dir, "beijing_place_records_communities.jsonl"),
+            str(project_root / "data" / "beijing_place_records.jsonl"),
+            str(project_root / "data" / "beijing_place_records_communities.jsonl"),
+            str(data_dir / "beijing_place_records.jsonl"),
+            str(data_dir / "beijing_place_records_communities.jsonl"),
             raw_output_path,
         ]
     )

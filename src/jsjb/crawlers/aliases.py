@@ -8,6 +8,7 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -15,22 +16,22 @@ import requests
 from bs4 import BeautifulSoup
 
 DISTRICT_NAMES = [
-    "???",
-    "???",
-    "???",
-    "???",
-    "????",
-    "???",
-    "????",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
-    "???",
+    "东城区",
+    "西城区",
+    "朝阳区",
+    "丰台区",
+    "石景山区",
+    "海淀区",
+    "门头沟区",
+    "房山区",
+    "通州区",
+    "顺义区",
+    "昌平区",
+    "大兴区",
+    "怀柔区",
+    "平谷区",
+    "密云区",
+    "延庆区",
 ]
 
 USER_AGENT = (
@@ -427,6 +428,7 @@ def build_sources(source_names: list[str], amap_key: str) -> list[BaseSource]:
 
 
 def parse_args() -> argparse.Namespace:
+    project_root = Path(__file__).resolve().parents[3]
     parser = argparse.ArgumentParser(description="Build an additive Beijing place dictionary.")
     parser.add_argument(
         "--sources",
@@ -437,11 +439,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-pages", type=int, default=2, help="Max pages per HTML source.")
     parser.add_argument(
         "--output-json",
-        default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "beijing_districts_extra.json"),
+        default=str(project_root / "data" / "runtime" / "beijing_districts_extra.json"),
     )
     parser.add_argument(
         "--output-jsonl",
-        default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "beijing_place_records.jsonl"),
+        default=str(project_root / "data" / "raw" / "places" / "beijing_place_records.jsonl"),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print summary without writing files.")
     return parser.parse_args()

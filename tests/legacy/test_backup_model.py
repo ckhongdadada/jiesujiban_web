@@ -1,11 +1,20 @@
 """
 测试备份模型 final_model_fgm_master_smoke2 的预测效果
+
+NOTE: 此文件为 legacy 测试，依赖本地模型文件，仅作手动运行参考。
+      不会在 pytest 自动发现中执行（通过 pytestmark 跳过）。
 """
+
+import os
+
+import pytest
+
+pytestmark = pytest.mark.skip(reason="legacy 测试，依赖本地模型文件，仅手动运行")
+
 import torch
 import json
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# 使用备份模型
 model_dir = "final_model_fgm_master_smoke2"
 base_model_dir = r"C:\python\接诉即办\.venv\local_roberta_model"
 
@@ -13,15 +22,11 @@ print("=" * 60)
 print("测试备份模型: final_model_fgm_master_smoke2")
 print("=" * 60)
 
-# 检查模型文件
-import os
 if not os.path.exists(f"{model_dir}/pytorch_model.bin"):
-    print(f"\n❌ 错误: {model_dir}/pytorch_model.bin 不存在")
-    exit(1)
+    pytest.skip(f"{model_dir}/pytorch_model.bin 不存在，跳过")
 
 if not os.path.exists(f"{model_dir}/label_map.json"):
-    print(f"\n❌ 错误: {model_dir}/label_map.json 不存在")
-    exit(1)
+    pytest.skip(f"{model_dir}/label_map.json 不存在，跳过")
 
 # 加载模型
 device = "cuda" if torch.cuda.is_available() else "cpu"

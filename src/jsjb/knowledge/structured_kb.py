@@ -70,8 +70,8 @@ class StructuredKnowledgeBase:
         self._load()
     
     def _get_default_path(self) -> Path:
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        return Path(base_dir) / "data" / "runtime" / "structured_kb.json"
+        from src.jsjb.core.paths import get_runtime_dir
+        return get_runtime_dir() / "structured_kb.json"
     
     def _load(self) -> None:
         if not self.kb_path.exists():
@@ -140,20 +140,24 @@ class StructuredKnowledgeBase:
             update_time=datetime.now().isoformat()
         )
     
+    def _save_internal(self) -> None:
+        """内部保存（不获取锁，调用方需已持有锁）"""
+        self.kb_path.parent.mkdir(parents=True, exist_ok=True)
+
+        data = {
+            "project_status": {name: asdict(info) for name, info in self.project_status.items()},
+            "public_resources": {name: asdict(info) for name, info in self.public_resources.items()},
+            "unit_mapping": {name: asdict(info) for name, info in self.unit_mapping.items()},
+            "update_time": datetime.now().isoformat()
+        }
+
+        with open(self.kb_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
     def save(self) -> None:
         """保存知识库"""
         with self._lock:
-            self.kb_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            data = {
-                "project_status": {name: asdict(info) for name, info in self.project_status.items()},
-                "public_resources": {name: asdict(info) for name, info in self.public_resources.items()},
-                "unit_mapping": {name: asdict(info) for name, info in self.unit_mapping.items()},
-                "update_time": datetime.now().isoformat()
-            }
-            
-            with open(self.kb_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._save_internal()
     
     def get_project_status(self, project_name: str) -> Optional[ProjectInfo]:
         """获取项目状态"""
@@ -164,7 +168,7 @@ class StructuredKnowledgeBase:
         with self._lock:
             project_info.update_time = datetime.now().isoformat()
             self.project_status[project_info.name] = project_info
-            self.save()
+            self._save_internal()
     
     def get_public_resource(self, resource_name: str) -> Optional[PublicResource]:
         """获取公共资源"""
@@ -175,7 +179,7 @@ class StructuredKnowledgeBase:
         with self._lock:
             resource.update_time = datetime.now().isoformat()
             self.public_resources[resource.name] = resource
-            self.save()
+            self._save_internal()
     
     def get_unit_mapping(self, project_name: str) -> Optional[UnitMapping]:
         """获取单位映射"""
@@ -186,7 +190,7 @@ class StructuredKnowledgeBase:
         with self._lock:
             mapping.update_time = datetime.now().isoformat()
             self.unit_mapping[mapping.project_name] = mapping
-            self.save()
+            self._save_internal()
     
     def search_projects(self, query: str, district: str = "") -> List[ProjectInfo]:
         """搜索项目"""

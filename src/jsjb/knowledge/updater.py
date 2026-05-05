@@ -135,24 +135,39 @@ class KnowledgeUpdater:
             print(f"添加事实到知识库失败: {e}")
     
     def _update_rag_corpus(self) -> None:
-        """更新RAG语料库"""
         try:
             rag_documents = self.kb.export_to_rag_format()
-            
             rag_path = self._get_rag_corpus_path()
-            
-            with open(rag_path, 'w', encoding='utf-8') as f:
-                for doc in rag_documents:
+
+            existing_ids = set()
+            existing_lines = []
+            if rag_path.exists():
+                with open(rag_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            doc = json.loads(line)
+                            existing_ids.add(doc.get("id", ""))
+                        except json.JSONDecodeError:
+                            pass
+                        existing_lines.append(line)
+
+            new_docs = [doc for doc in rag_documents if doc.get("title", "") not in existing_ids]
+
+            with open(rag_path, "a", encoding="utf-8") as f:
+                for doc in new_docs:
                     f.write(json.dumps(doc, ensure_ascii=False) + "\n")
-            
-            print(f"[知识更新] RAG语料库已更新，共{len(rag_documents)}条记录")
+
+            total = len(existing_lines) + len(new_docs)
+            print(f"[知识更新] RAG语料库已更新，新增{len(new_docs)}条，总计{total}条记录")
         except Exception as e:
             print(f"[知识更新] 更新RAG语料库失败: {e}")
     
     def _get_rag_corpus_path(self) -> Path:
-        """获取RAG语料库路径"""
-        base_dir = Path(__file__).resolve().parents[1]
-        return base_dir / "data" / "runtime" / "policy_case_corpus.jsonl"
+        from src.jsjb.core.paths import get_policy_corpus_path
+        return get_policy_corpus_path()
     
     def batch_update(self, facts: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

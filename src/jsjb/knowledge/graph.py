@@ -123,6 +123,7 @@ class KnowledgeGraphManager:
             "name": name,
             "type": properties.get("type", ""),
             "status": properties.get("status", ""),
+            "district": properties.get("district", ""),
             "start_date": properties.get("start_date", ""),
             "end_date": properties.get("end_date", ""),
             "budget": properties.get("budget", ""),
@@ -271,10 +272,10 @@ class KnowledgeGraphManager:
         if self.use_neo4j:
             return self._neo4j_get_related(entity_id, "RESPONSIBLE_FOR", reverse=True)
         else:
-            # 反向查找
             for edge in self.graph.edges:
                 if edge["to"] == entity_id and edge["type"] == "RESPONSIBLE_FOR":
-                    return self.graph.get_node(edge["from"])
+                    nid = edge["from"]
+                    return {"id": nid, **self.graph.get_node(nid)}
             return None
     
     def get_parent_org(self, org_id: str) -> Optional[Dict]:
@@ -284,7 +285,8 @@ class KnowledgeGraphManager:
         else:
             neighbors = self.graph.get_neighbors(org_id, "REPORTS_TO")
             if neighbors:
-                return self.graph.get_node(neighbors[0][0])
+                nid = neighbors[0][0]
+                return {"id": nid, **self.graph.get_node(nid)}
             return None
     
     def get_location(self, entity_id: str) -> Optional[Dict]:
@@ -294,7 +296,8 @@ class KnowledgeGraphManager:
         else:
             neighbors = self.graph.get_neighbors(entity_id, "LOCATED_IN")
             if neighbors:
-                return self.graph.get_node(neighbors[0][0])
+                nid = neighbors[0][0]
+                return {"id": nid, **self.graph.get_node(nid)}
             return None
     
     def get_policies(self, entity_id: str) -> List[Dict]:

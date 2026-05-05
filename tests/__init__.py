@@ -11,6 +11,15 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+def _on_rmtree_error(func, path, exc_info):
+    import stat
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
+
 class BaseTestCase(unittest.TestCase):
     """测试基类"""
     
@@ -23,10 +32,11 @@ class BaseTestCase(unittest.TestCase):
     
     @classmethod
     def tearDownClass(cls):
-        """测试类清理"""
+        from src.jsjb.feedback.repository import FeedbackDatabase
+        FeedbackDatabase.reset_singleton()
         import shutil
         if os.path.exists(cls.test_dir):
-            shutil.rmtree(cls.test_dir)
+            shutil.rmtree(cls.test_dir, onerror=_on_rmtree_error)
     
     def create_test_file(self, filename: str, content: str) -> Path:
         """创建测试文件"""

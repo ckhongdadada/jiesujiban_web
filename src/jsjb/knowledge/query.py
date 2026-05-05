@@ -204,7 +204,7 @@ class GraphQueryEngine:
                     related = self.graph._neo4j_get_all_related(node_id, rel_type)
                 else:
                     neighbors = self.graph.graph.get_neighbors(node_id, rel_type)
-                    related = [self.graph.graph.get_node(nid) for nid, _, _ in neighbors]
+                    related = [{"id": nid, **self.graph.graph.get_node(nid)} for nid, _, _ in neighbors]
                 
                 next_ids.extend([r["id"] for r in related])
             

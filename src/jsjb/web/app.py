@@ -1,6 +1,4 @@
-"""
-?????????? - Flask ???
-"""
+"""Flask application factory for the 接诉即办 service."""
 
 from __future__ import annotations
 
@@ -14,6 +12,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from src.jsjb.core.config import load_runtime_config
+from src.jsjb.core.model_manifest import validate_model_manifest_file
 from src.jsjb.core.paths import (
     get_runtime_catalog_path,
     get_runtime_district_file,
@@ -60,7 +59,9 @@ from src.jsjb.knowledge import KnowledgeGraphManager, GraphQueryEngine
 RATE_LIMIT_LOCK = threading.Lock()
 IP_REQUEST_TIMES = {}
 RATE_LIMIT_SECONDS = 3.0
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+
+from src.jsjb.core.paths import get_project_root
+PROJECT_ROOT = str(get_project_root())
 
 
 def create_app():
@@ -74,11 +75,9 @@ def create_app():
     logger = StructuredLogger()
     setup_logging("INFO")
     
-    # 閸掓繂顫愰崠鏍晩鐠囶垰顦╅悶鍡楁珤
     error_handler = ErrorHandler(logger)
     set_error_handler(error_handler)
     
-    # 閸掓繂顫愰崠鏍у冀妫ｅ牊鏆熼幑顔肩氨
     logger.info("初始化用户反馈数据库...")
     feedback_db = get_feedback_database()
     reply_error_extractor = ReplyErrorExtractor()
@@ -311,6 +310,13 @@ def create_app():
                         multi_query_count=config.rag_multi_query_count,
                         dense_weight=config.rag_dense_weight,
                         sparse_weight=config.rag_sparse_weight,
+                        enable_chunking=config.rag_enable_chunking,
+                        chunk_size=config.rag_chunk_size,
+                        chunk_overlap=config.rag_chunk_overlap,
+                        enable_reranker=config.rag_enable_reranker,
+                        enable_graph_augment=config.rag_enable_graph_augment,
+                        enable_feedback_boost=config.rag_enable_feedback_boost,
+                        enable_post_processing=config.rag_enable_post_processing,
                     )
             
             if _components["classifier"] is None:
@@ -375,17 +381,33 @@ def create_app():
             draft_model_path=config.generator_draft_model,
             enable_assisted_decoding=config.enable_assisted_decoding,
         )
+        manifest_info = validate_model_manifest_file(config, config.model_manifest_path)
         return {
             "ner_ready": ner_ready,
             "rag_ready": rag_ready,
             "classifier": classifier_info,
             "generator": generator_info,
+            "model_manifest": manifest_info,
+            "model_manifest_strict": config.enforce_model_manifest,
             "classifier_loaded": _components["classifier"] is not None and _components["classifier"].model is not None,
             "generator_loaded": generator_loaded(),
             "device": str(torch.device("cuda" if torch.cuda.is_available() else "cpu")),
         }
 
     register_analysis_routes(app, build_health_snapshot=build_health_snapshot)
+
+    @app.route("/api/rag/reload", methods=["POST"])
+    def rag_reload():
+        try:
+            rag = _components.get("rag")
+            if rag is None:
+                return jsonify({"status": "error", "message": "RAG component not initialized"}), 503
+            result = rag.reload()
+            logger.info(f"[rag_reload] {result}")
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"[rag_reload] {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route("/api/analyze", methods=["POST"])
     def analyze():
@@ -410,15 +432,15 @@ def create_app():
             title = cleaned_data.get("title", "")
             body = cleaned_data.get("body", "")
             forced_unit = cleaned_data.get("_force_unit", "")
+            debug_mode = cleaned_data.get("_debug", False)
 
             if not body:
-                return jsonify({"error": "閻ｆ瑨鈻堝锝嗘瀮娑撳秷鍏樻稉铏光敄"}), 400
+                return jsonify({"error": "留言正文不能为空"}), 400
 
             logger.info(f"开始处理分析请求 - IP: {client_ip}")
             
             init_components()
 
-            # 閸︽澘鎮曠拠鍡楀焼
             location_start = time.time()
             location_processor = get_location_processor()
             if location_processor:
@@ -428,7 +450,6 @@ def create_app():
             location_time = time.time() - location_start
             logger.log_retrieval(f"{title} {body}", location.get("district", ""), 0, location_time)
 
-            # 閸楁洑缍呴崚鍡欒
             classification_start = time.time()
             classification_processor = get_classification_processor()
             if classification_processor:
@@ -443,7 +464,7 @@ def create_app():
             classification_time = time.time() - classification_start
             logger.info(f"单位分类完成，耗时: {classification_time:.2f}秒")
             
-            primary_unit = forced_unit or (units[0]["unit"] if units else "閻╃鍙ч崡鏇氱秴")
+            primary_unit = forced_unit or (units[0]["unit"] if units else "相关部门")
 
             retrieval_start = time.time()
             docs = _components["rag"].retrieve(
@@ -457,7 +478,6 @@ def create_app():
             logger.log_retrieval(f"{title} {body}", location.get("district", ""), len(docs), retrieval_time)
             knowledge_graph = query_knowledge_graph(location, primary_unit)
 
-            # 閻㈢喐鍨氶崶鐐差槻
             generation_start = time.time()
             if docs:
                 gen_result = generate_reply_with_context(
@@ -498,7 +518,6 @@ def create_app():
 
             total_time = time.time() - start_time
             
-            # 鐠佹澘缍嶇拠閿嬬湴鐎瑰本鍨?
             grounding = _grounding_strength(docs, district=location.get("district")) if docs else "none"
             is_forced_unit = bool(forced_unit)
             reply_mode = "保守兜底生成" if grounding in {"none", "weak"} else "RAG增强生成"
@@ -548,6 +567,21 @@ def create_app():
                     "generation": round(generation_time, 3),
                 },
             }
+
+            if debug_mode:
+                response_data["debug"] = {
+                    "retrieval_full": docs[:10] if docs else [],
+                    "retrieval_count": len(docs),
+                    "location_raw": location,
+                    "units_full": units,
+                    "grounding": grounding,
+                    "reply_mode": reply_mode,
+                    "classifier_route": config.classifier_route,
+                    "retrieval_top_k": config.retrieval_top_k,
+                    "generation_max_tokens": config.generation_max_tokens,
+                    "generation_temperature": config.generation_temperature,
+                    "enable_fact_verification": config.enable_fact_verification,
+                }
             
             logger.log_request(
                 cleaned_data, 
@@ -559,7 +593,6 @@ def create_app():
             return jsonify(response_data)
 
         except Exception as e:
-            # 婢跺嫮鎮婇張顏嗙叀闁挎瑨顕?
             error_response = error_handler.handle_unexpected_error(e)
             return jsonify(error_response), 500
 

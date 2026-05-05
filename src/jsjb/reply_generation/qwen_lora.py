@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import re
@@ -15,7 +15,8 @@ from src.jsjb.core.logging import StructuredLogger
 
 
 def _get_base_dir() -> str:
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.jsjb.core.paths import get_project_root
+    return str(get_project_root())
 
 
 _gen_tokenizer = None

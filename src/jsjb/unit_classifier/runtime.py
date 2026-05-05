@@ -68,6 +68,10 @@ def _detect_architecture(meta: dict[str, Any]) -> str:
     return "legacy_bert_sequence"
 
 
+def _build_classifier_text(tag: str, title: str, body: str) -> str:
+    return f"\u3010{tag}\u3011{title}\u3002{body}"
+
+
 def classifier_status(model_dir: str, base_model_dir: str = "") -> dict[str, Any]:
     status = inspect_classifier_artifacts(model_dir, base_model_dir)
     meta = _load_json(os.path.join(model_dir, "model_meta.json"))
@@ -168,7 +172,7 @@ def predict_units(
     if not load_classifier_runtime(model_dir, base_model_dir, label_map_path, device):
         return []
 
-    text = f"【{tag}】{title}。{body}"
+    text = _build_classifier_text(tag, title, body)
     encoding = _cls_tokenizer(
         text,
         add_special_tokens=True,

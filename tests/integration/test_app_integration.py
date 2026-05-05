@@ -18,6 +18,9 @@ class TestIntegration(BaseTestCase):
     
     def setUp(self):
         """每个测试前的初始化"""
+        FeedbackDatabase.reset_singleton()
+        if hasattr(FeedbackDatabase, 'db_path'):
+            del FeedbackDatabase.db_path
         self.kb_path = str(self.test_data_dir / "test_kb.json")
         self.db_path = str(self.test_data_dir / "test_feedback.db")
         

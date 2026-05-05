@@ -1,0 +1,110 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Models (large files, mount via volume)
+models/
+qwen_models/
+local_roberta_model/
+final_model_fgm/
+qwen_reply_model/
+
+# Data (mount via volume)
+data/runtime/*.db
+data/runtime/*.json
+data/runtime/*.jsonl
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Documentation (not needed in container)
+docs/*.md
+*.md
+!README.md
+
+# Legacy code
+legacy/
+
+# Development files
+scripts/debug/
+scripts/crawling/
+scripts/training/
+scripts/evaluation/
+
+# Competition materials
+competition_materials/
+
+# Analysis files
+raw_data_analysis/
+
+# Optuna logs
+optuna_*.txt
+optuna_*.log
+optuna_*.md
+
+# Misc
+*.txt
+!requirements*.txt
+*.bat
+*.ps1
+*.sh
+
+# Docker files (prevent recursive copy)
+docker/
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment files (use secrets instead)
+.env
+.env.*
+!.env.example

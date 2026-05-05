@@ -10,8 +10,10 @@
 6. [地名识别接口](#地名识别接口)
 7. [RAG检索接口](#rag检索接口)
 8. [反馈接口](#反馈接口)
-9. [管理接口](#管理接口)
-10. [错误码](#错误码)
+9. [RAG管理接口](#rag管理接口)
+10. [知识图谱审核接口](#知识图谱审核接口)
+11. [管理接口](#管理接口)
+12. [错误码](#错误码)
 
 ---
 
@@ -346,13 +348,28 @@ POST /api/search
         "doc_type": "policy",
         "district": "朝阳区",
         "snippet": "垃圾清运实行属地管理原则...",
-        "score": 0.95
+        "score": 0.95,
+        "full_content": "垃圾清运实行属地管理原则，各区城管委负责...",
+        "retrieval_backend": "hybrid",
+        "matched_terms": ["垃圾清运", "属地管理"],
+        "dense_score": 0.92,
+        "sparse_score": 0.88,
+        "rerank_score": 0.95,
+        "feedback_boost": 0.05
       }
     ],
     "total": 1
   }
 }
 ```
+
+> **字段说明**：
+> - `full_content`: 文档完整内容（分块模式下可用于回溯到原文）
+> - `retrieval_backend`: 检索后端类型，取值为 `hybrid`、`dense`、`sparse`、`empty`、`knowledge_graph`
+> - `matched_terms`: 匹配的关键词列表
+> - `dense_score` / `sparse_score`: 稠密/稀疏检索子分数
+> - `rerank_score`: Cross-Encoder 重排序分数
+> - `feedback_boost`: 用户反馈加权值（正为有用反馈，负为无用反馈）
 
 ---
 
@@ -427,6 +444,131 @@ GET /api/feedback/stats
       {"tag": "咨询", "count": 300}
     ]
   }
+}
+```
+
+### 提交文档级反馈
+
+用于 RAG 检索质量的反馈闭环，记录某条检索文档是否有帮助。
+
+**请求**
+
+```
+POST /api/feedback/doc
+```
+
+**参数**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| doc_id | string | 是 | 文档ID |
+| is_helpful | boolean | 是 | 是否有帮助 |
+| query | string | 否 | 查询原文 |
+
+**请求示例**
+
+```json
+{
+  "doc_id": "policy-001",
+  "is_helpful": true,
+  "query": "小区垃圾清运问题"
+}
+```
+
+**响应**
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "文档反馈已记录"
+  }
+}
+```
+
+---
+
+## RAG管理接口
+
+### RAG热更新
+
+无需重启服务，重新加载语料库并重建检索索引。
+
+**请求**
+
+```
+POST /api/rag/reload
+```
+
+**响应**
+
+```json
+{
+  "status": "ok",
+  "old_document_count": 570,
+  "new_document_count": 575,
+  "old_chunk_count": 1820,
+  "new_chunk_count": 1835,
+  "active_backend": "hybrid"
+}
+```
+
+> **使用场景**：向语料库追加新文档后，调用此接口即可热更新索引，无需重启服务。
+
+---
+
+## 知识图谱审核接口
+
+### 获取待审核事实队列
+
+**请求**
+
+```
+GET /api/knowledge-graph/review?status=pending&limit=20
+```
+
+**响应**
+
+```json
+{
+  "candidates": [
+    {
+      "id": 1,
+      "feedback_id": 42,
+      "fact_type": "project_status",
+      "fact_content": {"project": "XX工程", "status": "已完成"},
+      "source_reply_type": "reference",
+      "review_status": "pending"
+    }
+  ],
+  "total": 1
+}
+```
+
+### 审核并导入图谱
+
+**请求**
+
+```
+POST /api/knowledge-graph/review/{candidate_id}
+```
+
+**参数**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| action | string | 是 | `approve` 或 `reject` |
+| reviewer | string | 否 | 审核人 |
+| review_notes | string | 否 | 审核备注 |
+
+**响应**
+
+```json
+{
+  "status": "ok",
+  "candidate_id": 1,
+  "action": "approved",
+  "import_result": {"created_nodes": [], "created_relations": []}
 }
 ```
 
@@ -515,3 +657,4 @@ POST /api/admin/models/reload
 | 1.0.0 | 2024-01-01 | 初始版本 |
 | 1.1.0 | 2024-02-01 | 添加事实验证接口 |
 | 1.2.0 | 2024-03-01 | 添加知识库管理接口 |
+| 1.3.0 | 2026-05-02 | 新增 `/api/rag/reload`、`/api/feedback/doc`、知识图谱审核接口；RAG检索响应新增 `full_content`、`retrieval_backend`、子分数字段 |

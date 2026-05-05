@@ -6,7 +6,8 @@ from dataclasses import asdict, dataclass
 
 
 def _get_base_dir() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    from src.jsjb.core.paths import get_project_root
+    return str(get_project_root())
 
 
 def _first_existing_path(candidates: list[str]) -> str:
@@ -89,6 +90,15 @@ class RuntimeConfig:
     neo4j_user: str = ""
     neo4j_password: str = ""
     enable_neo4j: bool = False
+    rag_enable_chunking: bool = True
+    rag_chunk_size: int = 400
+    rag_chunk_overlap: int = 60
+    rag_enable_reranker: bool = True
+    rag_enable_graph_augment: bool = True
+    rag_enable_feedback_boost: bool = True
+    rag_enable_post_processing: bool = True
+    model_manifest_path: str = ""
+    enforce_model_manifest: bool = False
 
     @property
     def classifier_label_map(self) -> str:
@@ -229,6 +239,24 @@ def load_runtime_config() -> RuntimeConfig:
         neo4j_user=os.getenv("NEO4J_USER", json_config.get("neo4j_user", "neo4j")),
         neo4j_password=os.getenv("NEO4J_PASSWORD", json_config.get("neo4j_password", "")),
         enable_neo4j=json_config.get("feature_enable_neo4j", False),
+        rag_enable_chunking=os.getenv("RAG_ENABLE_CHUNKING", str(json_config.get("rag_enable_chunking", True))).lower() == "true",
+        rag_chunk_size=int(os.getenv("RAG_CHUNK_SIZE", str(json_config.get("rag_chunk_size", 400)))),
+        rag_chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", str(json_config.get("rag_chunk_overlap", 60)))),
+        rag_enable_reranker=os.getenv("RAG_ENABLE_RERANKER", str(json_config.get("rag_enable_reranker", True))).lower() == "true",
+        rag_enable_graph_augment=os.getenv("RAG_ENABLE_GRAPH_AUGMENT", str(json_config.get("rag_enable_graph_augment", True))).lower() == "true",
+        rag_enable_feedback_boost=os.getenv("RAG_ENABLE_FEEDBACK_BOOST", str(json_config.get("rag_enable_feedback_boost", True))).lower() == "true",
+        rag_enable_post_processing=os.getenv("RAG_ENABLE_POST_PROCESSING", str(json_config.get("rag_enable_post_processing", True))).lower() == "true",
+        model_manifest_path=_resolve_config_path(
+            base_dir,
+            os.getenv(
+                "MODEL_MANIFEST_PATH",
+                json_config.get("model_manifest_path", os.path.join("data", "runtime", "model_manifest.json")),
+            ),
+        ),
+        enforce_model_manifest=os.getenv(
+            "ENFORCE_MODEL_MANIFEST",
+            str(json_config.get("feature_enforce_model_manifest", False)),
+        ).lower() == "true",
     )
 
 

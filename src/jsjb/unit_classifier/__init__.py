@@ -1,3 +1,13 @@
-﻿"""Unit classifier module public exports."""
-from src.jsjb.unit_classifier.runtime import *  # noqa: F401,F403
-from src.jsjb.unit_classifier.catalog import *  # noqa: F401,F403
+from src.jsjb.unit_classifier.runtime import (
+    ClassifierRuntime,
+    classifier_status,
+    load_classifier_runtime,
+    predict_units,
+)
+
+__all__ = [
+    "ClassifierRuntime",
+    "classifier_status",
+    "load_classifier_runtime",
+    "predict_units",
+]

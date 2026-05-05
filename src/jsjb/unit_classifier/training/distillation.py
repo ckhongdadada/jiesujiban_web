@@ -568,13 +568,13 @@ class DataProcessor:
             train_df = df.iloc[train_idx].reset_index(drop=True)
             val_df = df.iloc[val_idx].reset_index(drop=True)
         except ValueError:
-            print("????????????????")
+            print("警告：无法分层抽样，转为随机抽样")
             indices = np.arange(len(df))
             train_idx, val_idx = train_test_split(indices, test_size=0.2, random_state=self.config.seed)
             train_df = df.iloc[train_idx].reset_index(drop=True)
             val_df = df.iloc[val_idx].reset_index(drop=True)
 
-        print("?????????????????????...")
+        print("正在基于训练集计算类别权重...")
         train_labels = train_df["label_id"].values
         observed_classes = np.unique(train_labels)
         class_weights = compute_class_weight(
@@ -590,19 +590,19 @@ class DataProcessor:
             full_weights[int(cls)] = float(weight)
 
         self.config.class_weights = full_weights.float()
-        print(f"????????? (Top 5 ????: {self.config.class_weights[:5]})")
+        print(f"类别权重已生成 (Top 5 权重: {self.config.class_weights[:5]})")
 
         train_tfidf = None
         val_tfidf = None
         if self.config.use_tfidf and self.tfidf_vectorizer is not None:
-            print("?????????? TF-IDF ?? (jieba??)...")
+            print("正在仅用训练集拟合 TF-IDF 向量器 (jieba分词)...")
             train_texts = train_df["full_text"].tolist()
             val_texts = val_df["full_text"].tolist()
             self.tfidf_vectorizer.fit(train_texts)
             train_tfidf = self.tfidf_vectorizer.transform(train_texts).toarray()
             val_tfidf = self.tfidf_vectorizer.transform(val_texts).toarray()
             self.config.tfidf_dim = int(train_tfidf.shape[1])
-            print(f"TF-IDF ??????: {self.config.tfidf_dim}")
+            print(f"TF-IDF 特征维度: {self.config.tfidf_dim}")
 
         return train_df, val_df, train_tfidf, val_tfidf
 
@@ -1318,10 +1318,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--init-from", default=r"C:\Users\28414\PycharmProjects\接诉即办项目\final_model_fgm\pytorch_model.bin", help="从指定路径加载预训练权重")
     parser.add_argument("--legacy-bert", action="store_true", help="使用纯 BERT/RoBERTa 架构（关闭 CNN/Attention/TF-IDF）")
-    parser.add_argument("--use-cnn-attention", action="store_true", default=True, help="?? BERT+CNN+Attention ??")
-    parser.add_argument("--no-cnn-attention", dest="use_cnn_attention", action="store_false", help="??????")
-    parser.add_argument("--use-tfidf", action="store_true", default=True, help="?? TF-IDF ??")
-    parser.add_argument("--no-tfidf", dest="use_tfidf", action="store_false", help="?? TF-IDF ??")
+    parser.add_argument("--use-cnn-attention", action="store_true", default=True, help="启用 BERT+CNN+Attention 架构")
+    parser.add_argument("--no-cnn-attention", dest="use_cnn_attention", action="store_false", help="关闭 CNN/Attention 分支")
+    parser.add_argument("--use-tfidf", action="store_true", default=True, help="启用 TF-IDF 特征分支")
+    parser.add_argument("--no-tfidf", dest="use_tfidf", action="store_false", help="关闭 TF-IDF 特征分支")
     parser.add_argument("--tfidf-dim", type=int, default=3000, help="TF-IDF 特征维度")
     parser.add_argument("--loss-type", type=str, default="distillation", 
                         choices=['focal', 'rank_aware', 'cross_entropy', 'distillation'],
@@ -1343,8 +1343,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # 自蒸馏参数
     parser.add_argument("--temperature", type=float, default=4.0, 
                         help="蒸馏温度（越高分布越平滑）")
-    parser.add_argument("--temperature-start", type=float, default=4.0, help="??????")
-    parser.add_argument("--temperature-end", type=float, default=1.5, help="??????????")
+    parser.add_argument("--temperature-start", type=float, default=4.0, help="蒸馏温度起始值")
+    parser.add_argument("--temperature-end", type=float, default=1.5, help="蒸馏温度结束值")
     parser.add_argument(
         "--distill-strategy",
         type=str,
@@ -1352,8 +1352,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["ema_teacher", "ema_bank", "prior", "ema_bank_prior"],
         help="自蒸馏策略：ema_teacher / ema_bank / prior / ema_bank_prior。",
     )
-    parser.add_argument("--distill-top-k", type=int, default=5, help="????????? Top-K ???")
-    parser.add_argument("--ema-bank-momentum", type=float, default=0.9, help="EMA Soft Label Bank ???????")
+    parser.add_argument("--distill-top-k", type=int, default=5, help="软标签分布保留的 Top-K 类别数")
+    parser.add_argument("--ema-bank-momentum", type=float, default=0.9, help="EMA Soft Label Bank 更新动量")
     parser.add_argument("--prior-alpha", type=float, default=0.12, help="业务先验软标签融合权重")
     parser.add_argument("--prior-top-k", type=int, default=8, help="每个单位先验分布保留的相关单位数量")
     parser.add_argument("--prior-warmup-epochs", type=int, default=1, help="前几个 epoch 不启用业务先验融合")
@@ -1372,7 +1372,7 @@ def parse_args() -> argparse.Namespace:
     if args.legacy_bert:
         args.use_cnn_attention = False
         args.use_tfidf = False
-        print(">>> ??? legacy_bert ??????? CNN/Attention ? TF-IDF ???")
+        print(">>> 已启用 legacy_bert 路线，将关闭 CNN/Attention 与 TF-IDF 分支")
     return args
 
 

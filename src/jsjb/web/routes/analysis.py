@@ -20,6 +20,8 @@ def register_analysis_routes(app, *, build_health_snapshot):
                 "status": "ok",
                 "classifier_ready": snapshot["classifier"]["compatible_runtime_ready"],
                 "generator_ready": snapshot["generator"]["runtime_ready"],
+                "model_manifest": snapshot["model_manifest"],
+                "model_manifest_strict": snapshot["model_manifest_strict"],
                 "classifier_loaded": snapshot["classifier_loaded"],
                 "generator_loaded": snapshot["generator_loaded"],
                 "ner_ready": snapshot["ner_ready"],
@@ -40,12 +42,14 @@ def register_analysis_routes(app, *, build_health_snapshot):
         gen_ready = snapshot["generator"]["runtime_ready"]
         rag_ready = snapshot["rag_ready"]
         ner_ready = snapshot["ner_ready"]
-        if cls_ready and gen_ready and rag_ready and ner_ready:
+        manifest_ready = snapshot["model_manifest"]["ok"] or not snapshot["model_manifest_strict"]
+        if cls_ready and gen_ready and rag_ready and ner_ready and manifest_ready:
             return jsonify(
                 {
                     "status": "ready",
                     "classifier_loaded": snapshot["classifier_loaded"],
                     "generator_loaded": snapshot["generator_loaded"],
+                    "model_manifest": snapshot["model_manifest"],
                 }
             )
         return (
@@ -56,6 +60,8 @@ def register_analysis_routes(app, *, build_health_snapshot):
                     "generator": "ready" if gen_ready else "wait",
                     "rag": "ready" if rag_ready else "wait",
                     "ner": "ready" if ner_ready else "wait",
+                    "model_manifest": "ready" if manifest_ready else "mismatch",
+                    "model_manifest_errors": snapshot["model_manifest"]["errors"],
                 }
             ),
             503,

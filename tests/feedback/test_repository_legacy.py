@@ -3,6 +3,7 @@
 """
 
 import unittest
+import os
 from tests import BaseTestCase
 from src.jsjb.feedback.repository import FeedbackDatabase
 
@@ -12,7 +13,15 @@ class TestFeedbackDatabase(BaseTestCase):
     
     def setUp(self):
         """每个测试前的初始化"""
+        FeedbackDatabase.reset_singleton()
+        if hasattr(FeedbackDatabase, 'db_path'):
+            del FeedbackDatabase.db_path
         self.db_path = str(self.test_data_dir / "test_feedback.db")
+        if os.path.exists(self.db_path):
+            try:
+                os.remove(self.db_path)
+            except PermissionError:
+                pass
         self.db = FeedbackDatabase(self.db_path)
     
     def test_add_feedback(self):

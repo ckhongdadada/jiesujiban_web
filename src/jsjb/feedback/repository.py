@@ -31,13 +31,40 @@ class FeedbackDatabase:
     def __init__(self, db_path: str = None):
         if db_path and not hasattr(self, 'db_path'):
             self.db_path = db_path
+            self._conn = None
+            self._conn_lock = threading.Lock()
             self._init_database()
     
+    def _get_conn(self) -> sqlite3.Connection:
+        if self._conn is None:
+            with self._conn_lock:
+                if self._conn is None:
+                    self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+                    self._conn.execute("PRAGMA journal_mode=WAL")
+                    self._conn.execute("PRAGMA busy_timeout=5000")
+                    self._conn.row_factory = sqlite3.Row
+        return self._conn
+
+    def close(self) -> None:
+        with self._conn_lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+
+    @classmethod
+    def reset_singleton(cls) -> None:
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance.close()
+                cls._instance = None
+
     def _init_database(self) -> None:
-        """初始化数据库和表结构"""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         # 创建反馈表
@@ -142,6 +169,17 @@ class FeedbackDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kg_fact_queue_status ON knowledge_graph_fact_queue(review_status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kg_fact_queue_feedback_id ON knowledge_graph_fact_queue(feedback_id)')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS doc_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id TEXT NOT NULL,
+                is_helpful INTEGER NOT NULL,
+                query TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_doc_feedback_doc_id ON doc_feedback(doc_id)')
+
         # 创建统计视图
         cursor.execute('''
             CREATE VIEW IF NOT EXISTS feedback_stats AS
@@ -157,7 +195,6 @@ class FeedbackDatabase:
         ''')
         
         conn.commit()
-        conn.close()
 
     def save_reply_error_analysis(
         self,
@@ -166,7 +203,7 @@ class FeedbackDatabase:
         reference_reply: str = "",
     ) -> int:
         """Save structured generated-vs-reference reply error analysis."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         verification = analysis.get("verification") or {}
@@ -203,13 +240,11 @@ class FeedbackDatabase:
 
         analysis_id = cursor.lastrowid
         conn.commit()
-        conn.close()
         return analysis_id
 
     def get_reply_error_analysis(self, feedback_id: int) -> Optional[Dict[str, Any]]:
         """Return the latest structured reply error analysis for a feedback record."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         cursor.execute(
@@ -222,7 +257,6 @@ class FeedbackDatabase:
             (feedback_id,),
         )
         row = cursor.fetchone()
-        conn.close()
 
         if not row:
             return None
@@ -234,6 +268,27 @@ class FeedbackDatabase:
             except json.JSONDecodeError:
                 record[key] = []
         return record
+
+    def record_doc_feedback(self, doc_id: str, is_helpful: bool, query: str = "") -> None:
+        """Record whether a retrieved document was helpful for RAG feedback loop."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO doc_feedback (doc_id, is_helpful, query) VALUES (?, ?, ?)",
+            (doc_id, 1 if is_helpful else 0, query),
+        )
+        conn.commit()
+
+    def get_doc_feedback_scores(self) -> Dict[str, float]:
+        """Get aggregated helpful/unhelpful scores per doc for RAG boosting."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT doc_id, SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END) "
+            "FROM doc_feedback GROUP BY doc_id"
+        )
+        rows = cursor.fetchall()
+        return {row[0]: float(row[1]) * 0.05 for row in rows}
 
     def queue_knowledge_graph_facts(
         self,
@@ -247,7 +302,7 @@ class FeedbackDatabase:
         if not facts:
             return 0
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         inserted = 0
 
@@ -269,7 +324,6 @@ class FeedbackDatabase:
             inserted += 1
 
         conn.commit()
-        conn.close()
         return inserted
 
     def list_knowledge_graph_fact_queue(
@@ -277,8 +331,7 @@ class FeedbackDatabase:
         status: str = "pending",
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -290,7 +343,6 @@ class FeedbackDatabase:
             (status, limit),
         )
         rows = cursor.fetchall()
-        conn.close()
 
         results = []
         for row in rows:
@@ -303,15 +355,13 @@ class FeedbackDatabase:
         return results
 
     def get_knowledge_graph_fact_candidate(self, candidate_id: int) -> Optional[Dict[str, Any]]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(
             'SELECT * FROM knowledge_graph_fact_queue WHERE id = ?',
             (candidate_id,),
         )
         row = cursor.fetchone()
-        conn.close()
         if not row:
             return None
         item = dict(row)
@@ -331,7 +381,7 @@ class FeedbackDatabase:
         import_result: str = "",
     ) -> bool:
         review_status = "approved" if action == "approve" else "rejected"
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -356,7 +406,6 @@ class FeedbackDatabase:
         )
         success = cursor.rowcount > 0
         conn.commit()
-        conn.close()
         return success
     
     def add_feedback(self, feedback_data: Dict[str, Any]) -> int:
@@ -369,7 +418,7 @@ class FeedbackDatabase:
         Returns:
             记录ID
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -395,7 +444,6 @@ class FeedbackDatabase:
         
         feedback_id = cursor.lastrowid
         conn.commit()
-        conn.close()
         
         return feedback_id
     
@@ -410,8 +458,7 @@ class FeedbackDatabase:
         Returns:
             反馈记录列表
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -421,19 +468,16 @@ class FeedbackDatabase:
         ''', (limit, offset))
         
         rows = cursor.fetchall()
-        conn.close()
         
         return [dict(row) for row in rows]
     
     def get_feedback_by_id(self, feedback_id: int) -> Optional[Dict[str, Any]]:
         """根据ID获取单条反馈"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('SELECT * FROM user_feedback WHERE id = ?', (feedback_id,))
         row = cursor.fetchone()
-        conn.close()
         
         return dict(row) if row else None
     
@@ -444,7 +488,7 @@ class FeedbackDatabase:
         Returns:
             统计数据字典
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         # 基础统计
@@ -533,7 +577,6 @@ class FeedbackDatabase:
                 'helpful_rate': round(rate, 2),
             })
         
-        conn.close()
         
         helpful_rate = (helpful_count / total_count * 100) if total_count > 0 else 0
         
@@ -577,8 +620,7 @@ class FeedbackDatabase:
         Returns:
             符合条件的反馈记录列表
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         conditions = []
@@ -623,27 +665,24 @@ class FeedbackDatabase:
         ''', (*params, limit, offset))
         
         rows = cursor.fetchall()
-        conn.close()
         
         return [dict(row) for row in rows]
     
     def delete_feedback(self, feedback_id: int) -> bool:
         """删除反馈记录"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('DELETE FROM user_feedback WHERE id = ?', (feedback_id,))
         deleted = cursor.rowcount > 0
         
         conn.commit()
-        conn.close()
         
         return deleted
     
     def export_to_json(self, filepath: str) -> int:
         """导出所有数据到JSON文件"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('SELECT * FROM user_feedback ORDER BY created_at DESC')
@@ -654,7 +693,6 @@ class FeedbackDatabase:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-        conn.close()
         
         return len(data)
     
@@ -679,7 +717,7 @@ class FeedbackDatabase:
         error_entities = self._extract_error_entities(feedback)
         correct_facts = self._infer_correct_facts(feedback)
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -697,7 +735,6 @@ class FeedbackDatabase:
         ))
         
         conn.commit()
-        conn.close()
         
         return {
             "feedback_id": feedback_id,
@@ -817,7 +854,7 @@ class FeedbackDatabase:
         if not updates:
             return False
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         set_clauses = []
@@ -829,7 +866,6 @@ class FeedbackDatabase:
                 params.append(value)
         
         if not set_clauses:
-            conn.close()
             return False
         
         params.append(feedback_id)
@@ -841,7 +877,6 @@ class FeedbackDatabase:
         
         success = cursor.rowcount > 0
         conn.commit()
-        conn.close()
         
         return success
     
@@ -855,8 +890,7 @@ class FeedbackDatabase:
         Returns:
             反馈列表
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -866,13 +900,12 @@ class FeedbackDatabase:
         ''', (f'-{days} days',))
         
         rows = cursor.fetchall()
-        conn.close()
         
         return [dict(row) for row in rows]
     
     def get_error_statistics(self) -> Dict[str, Any]:
         """获取错误分析统计"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -890,7 +923,6 @@ class FeedbackDatabase:
         cursor.execute('SELECT COUNT(*) FROM error_analysis WHERE needs_correction = 1')
         needs_correction_count = cursor.fetchone()[0]
         
-        conn.close()
         
         return {
             "error_distribution": error_distribution,
@@ -918,7 +950,7 @@ class FeedbackDatabase:
         Returns:
             事实ID
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -929,14 +961,12 @@ class FeedbackDatabase:
         
         fact_id = cursor.lastrowid
         conn.commit()
-        conn.close()
         
         return fact_id
     
     def get_unverified_facts(self, limit: int = 100) -> List[Dict[str, Any]]:
         """获取未验证的事实"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -949,13 +979,12 @@ class FeedbackDatabase:
         ''', (limit,))
         
         rows = cursor.fetchall()
-        conn.close()
         
         return [dict(row) for row in rows]
     
     def verify_fact(self, fact_id: int, verified: bool = True) -> bool:
         """验证事实"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute(
@@ -965,7 +994,6 @@ class FeedbackDatabase:
         
         success = cursor.rowcount > 0
         conn.commit()
-        conn.close()
         
         return success
 

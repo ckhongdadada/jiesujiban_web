@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from src.jsjb.unit_classifier.runtime import (
+    _build_classifier_text,
     _detect_architecture,
     _load_json,
     classifier_status,
@@ -19,6 +20,10 @@ class TestRuntimeLoading(unittest.TestCase):
     def test_detect_architecture_hybrid(self):
         meta = {"architecture": "bert_cnn_attention_tfidf", "use_tfidf": True}
         self.assertEqual(_detect_architecture(meta), "bert_cnn_attention_tfidf")
+
+    def test_build_classifier_text_uses_training_format(self):
+        text = _build_classifier_text("环境卫生", "垃圾清运", "小区垃圾桶满溢")
+        self.assertEqual(text, "【环境卫生】垃圾清运。小区垃圾桶满溢")
 
     def test_detect_architecture_legacy(self):
         meta = {"architecture": "", "use_cnn_attention": False}
@@ -71,8 +76,7 @@ class TestRuntimeLoading(unittest.TestCase):
     def test_inspect_artifacts_missing_dir(self):
         result = inspect_classifier_artifacts("/nonexistent/dir")
         self.assertFalse(result["compatible_runtime_ready"])
-        self.assertIn("label_map", result["missing"])
-        self.assertIn("pytorch_model.bin", result["missing"])
+        self.assertIn("label_map.json", result["missing"])
 
     def test_inspect_artifacts_partial_dir(self):
         tmpdir = tempfile.mkdtemp()
@@ -81,7 +85,7 @@ class TestRuntimeLoading(unittest.TestCase):
             json.dump({"0": "环卫中心", "1": "住建委"}, f)
         result = inspect_classifier_artifacts(tmpdir)
         self.assertFalse(result["compatible_runtime_ready"])
-        self.assertIn("pytorch_model.bin", result["missing"])
+        self.assertTrue(any("pytorch_model.bin" in m or "model.safetensors" in m for m in result["missing"]))
 
 
 if __name__ == "__main__":

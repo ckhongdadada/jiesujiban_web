@@ -1,0 +1,157 @@
+# 接诉即办智能服务系统 Docker Compose 配置
+# 使用方式: docker compose -p jsjb up -d
+
+name: jsjb
+
+services:
+  # ==================== 主应用服务 ====================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: complaint-system:latest
+    container_name: complaint-system-app
+    ports:
+      - "${APP_PORT:-5000}:5000"
+    volumes:
+      - ./checkpoints:/app/checkpoints:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./configs/app/config.json:/app/configs/app/config.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password123}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    networks:
+      - complaint-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # ==================== Redis 缓存服务 ====================
+  redis:
+    image: redis:7-alpine
+    container_name: complaint-system-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - complaint-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== Neo4j 图数据库 ====================
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: complaint-system-neo4j
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-password123}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_dbms_memory_pagecache_size=512m
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+    networks:
+      - complaint-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ==================== Prometheus 监控（可选） ====================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: complaint-system-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - complaint-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # ==================== Grafana 可视化（可选） ====================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: complaint-system-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - complaint-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+# ==================== 网络配置 ====================
+networks:
+  complaint-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ==================== 数据卷 ====================
+volumes:
+  redis-data:
+    driver: local
+  neo4j-data:
+    driver: local
+  neo4j-logs:
+    driver: local
+  neo4j-import:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

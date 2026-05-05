@@ -10,7 +10,7 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from src.jsjb.feedback.repository import get_feedback_database
+from src.jsjb.feedback.repository import get_feedback_database, FeedbackDatabase
 
 def test_feedback_database():
     """测试反馈数据库功能"""
@@ -18,7 +18,7 @@ def test_feedback_database():
     print("测试用户反馈 SQLite 存储功能")
     print("=" * 60)
     
-    # 测试数据库初始化
+    FeedbackDatabase.reset_singleton()
     db_path = os.path.join('data', 'test_feedback.db')
     db = get_feedback_database(db_path)
     print("\n✅ 数据库初始化成功")
@@ -82,6 +82,8 @@ def test_feedback_database():
     print("  ✅ 近期趋势分析")
     
     # 清理测试数据库
+    db.close()
+    FeedbackDatabase.reset_singleton()
     if os.path.exists(db_path):
         os.remove(db_path)
         print(f"\n已清理测试数据库：{db_path}")

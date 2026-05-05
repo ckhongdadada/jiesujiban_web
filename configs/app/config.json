@@ -24,10 +24,10 @@
     "feature_enable_knowledge_graph": true,
     "knowledge_graph_path": "data/runtime/knowledge_graph.json",
     "knowledge_graph_top_k": 3,
-    "feature_enable_neo4j": false,
+    "feature_enable_neo4j": true,
     "neo4j_uri": "bolt://localhost:7687",
     "neo4j_user": "neo4j",
-    "neo4j_password": "",
+    "neo4j_password": "your_password_here",
     "cache_ttl": 3600,
     "cache_local_size": 10000,
     "batch_max_size": 10,
@@ -39,5 +39,14 @@
     "rag_enable_query_rewrite": true,
     "rag_multi_query_count": 4,
     "rag_dense_weight": 0.68,
-    "rag_sparse_weight": 0.32
+    "rag_sparse_weight": 0.32,
+    "rag_enable_chunking": true,
+    "rag_chunk_size": 400,
+    "rag_chunk_overlap": 60,
+    "rag_enable_reranker": true,
+    "rag_enable_graph_augment": true,
+    "rag_enable_feedback_boost": true,
+    "rag_enable_post_processing": true,
+    "model_manifest_path": "data/runtime/model_manifest.json",
+    "feature_enforce_model_manifest": false
 }
