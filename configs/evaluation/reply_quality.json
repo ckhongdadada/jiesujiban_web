@@ -1,0 +1,27 @@
+{
+  "min_length": 40,
+  "max_length": 260,
+  "use_bge_similarity": false,
+  "bge_model_name": "BAAI/bge-small-zh-v1.5",
+  "quality_score_weights": {
+    "semantic_similarity": 0.25,
+    "keyword_coverage": 0.20,
+    "actionability": 0.20,
+    "grounding": 0.15,
+    "format": 0.10,
+    "length": 0.10
+  },
+  "metrics": [
+    "rouge_1",
+    "rouge_2",
+    "rouge_l",
+    "bleu_4",
+    "semantic_similarity",
+    "keyword_coverage",
+    "actionability_score",
+    "grounding_score",
+    "format_score",
+    "length_score",
+    "quality_score"
+  ]
+}

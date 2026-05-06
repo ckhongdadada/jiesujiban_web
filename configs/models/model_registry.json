@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "active": {
+    "classifier": "final_model_hybrid_v3_32cls",
+    "generator_lora": "qwen_reply_model",
+    "generator_base": "qwen2_5_1_5b_instruct"
+  },
+  "artifacts": {
+    "classifier": {
+      "final_model_hybrid_v3_32cls": {
+        "path": "checkpoints/classifier/final_model_hybrid_v3_32cls",
+        "artifact_type": "classifier",
+        "description": "BERT + CNN + Attention + TF-IDF hybrid classifier"
+      }
+    },
+    "generator_lora": {
+      "qwen_reply_model": {
+        "path": "checkpoints/generator/lora/qwen_reply_model",
+        "artifact_type": "qwen_lora",
+        "description": "Qwen reply LoRA adapter"
+      }
+    },
+    "generator_base": {
+      "qwen2_5_1_5b_instruct": {
+        "path": "checkpoints/generator/base_models/qwen_models/Qwen/Qwen2___5-1___5B-Instruct",
+        "artifact_type": "qwen_base",
+        "description": "Qwen2.5-1.5B-Instruct base model"
+      }
+    }
+  }
+}

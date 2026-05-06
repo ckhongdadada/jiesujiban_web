@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import re
 import threading
 import time
+import uuid
 
 import torch
 from flask import Flask, request, jsonify
@@ -42,6 +44,7 @@ from src.jsjb.web.routes import (
     register_analysis_routes,
     register_feedback_routes,
     register_knowledge_review_routes,
+    register_system_status_routes,
 )
 from src.jsjb.feedback import get_feedback_database
 from src.jsjb.reply_generation.error_analysis import ReplyErrorExtractor
@@ -335,6 +338,117 @@ def create_app():
 
     register_analysis_routes(app, build_health_snapshot=build_health_snapshot)
 
+    def _safe_label_count() -> int:
+        label_path = os.path.join(config.classifier_model_dir, "label_map.json")
+        try:
+            with open(label_path, "r", encoding="utf-8") as fp:
+                return len(json.load(fp))
+        except Exception:
+            return 0
+
+    def _safe_model_meta() -> dict:
+        meta_path = os.path.join(config.classifier_model_dir, "model_meta.json")
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fp:
+                return json.load(fp)
+        except Exception:
+            return {}
+
+    def _rag_observability() -> dict:
+        rag = _components.get("rag")
+        graph_attached = False
+        graph_nodes = None
+        if rag is not None:
+            graph_augmentor = getattr(rag, "_graph_augmentor", None)
+            graph_obj = getattr(graph_augmentor, "_graph", None)
+            graph_attached = graph_obj is not None
+            nodes = getattr(graph_obj, "nodes", None)
+            if nodes is not None:
+                graph_nodes = len(nodes)
+        return {
+            "ready": build_health_snapshot()["rag_ready"],
+            "loaded": rag is not None,
+            "backend": getattr(rag, "active_backend", getattr(rag, "backend", config.rag_backend)) if rag is not None else config.rag_backend,
+            "doc_count": len(getattr(rag, "docs", []) or []) if rag is not None else 0,
+            "chunk_count": len(getattr(rag, "chunks", []) or []) if rag is not None else 0,
+            "query_rewrite_enabled": bool(getattr(rag, "enable_query_rewrite", config.rag_enable_query_rewrite)) if rag is not None else bool(config.rag_enable_query_rewrite),
+            "feedback_boost_enabled": bool(getattr(rag, "enable_feedback_boost", config.rag_enable_feedback_boost)) if rag is not None else bool(config.rag_enable_feedback_boost),
+            "graph_augment_enabled": bool(getattr(rag, "enable_graph_augment", config.rag_enable_graph_augment)) if rag is not None else bool(config.rag_enable_graph_augment),
+            "graph_attached": graph_attached,
+            "graph_nodes": graph_nodes,
+            "top_k": config.retrieval_top_k,
+            "dense_weight": config.rag_dense_weight,
+            "sparse_weight": config.rag_sparse_weight,
+        }
+
+    def build_system_status_snapshot() -> dict:
+        health = build_health_snapshot()
+        classifier_meta = _safe_model_meta()
+        feedback_dashboard = {}
+        try:
+            feedback_dashboard = feedback_db.get_feedback_dashboard(limit=5)
+        except Exception as exc:
+            feedback_dashboard = {"status": "error", "message": str(exc)}
+
+        kg = _components.get("knowledge_graph") or {}
+        kg_manager = kg.get("manager")
+        kg_nodes = None
+        if kg_manager is not None and not getattr(kg_manager, "use_neo4j", False):
+            kg_nodes = len(getattr(kg_manager.graph, "nodes", {}) or {})
+
+        return {
+            "status": "ok",
+            "service": {
+                "online": True,
+                "rate_limit_seconds": RATE_LIMIT_SECONDS,
+            },
+            "device": health["device"],
+            "classifier": {
+                "ready": health["classifier"]["compatible_runtime_ready"],
+                "loaded": health["classifier_loaded"],
+                "architecture": health["classifier"].get("model_meta", {}).get("architecture", ""),
+                "route": health["classifier"].get("model_meta", {}).get("classifier_route", config.classifier_route),
+                "model_dir": config.classifier_model_dir,
+                "base_model_dir": config.classifier_base_model,
+                "num_labels": int(classifier_meta.get("num_classes") or _safe_label_count()),
+                "version": classifier_meta.get("version") or classifier_meta.get("saved_at") or "",
+                "label_signature": classifier_meta.get("label_signature", ""),
+                "use_tfidf": bool(health["classifier"].get("model_meta", {}).get("use_tfidf", False)),
+            },
+            "rag": _rag_observability(),
+            "generator": {
+                "ready": health["generator"]["runtime_ready"],
+                "loaded": health["generator_loaded"],
+                "base_model": config.generator_base_model,
+                "lora_path": config.generator_lora_dir,
+                "draft_model": config.generator_draft_model,
+                "assisted_decoding_enabled": bool(config.enable_assisted_decoding),
+                "fact_verification_enabled": bool(config.enable_fact_verification),
+                "max_new_tokens": config.generation_max_tokens,
+                "temperature": config.generation_temperature,
+            },
+            "knowledge_graph": {
+                "enabled": bool(config.enable_knowledge_graph),
+                "loaded": kg_manager is not None,
+                "use_neo4j": bool(getattr(kg_manager, "use_neo4j", False)) if kg_manager is not None else bool(config.enable_neo4j),
+                "nodes": kg_nodes,
+                "path": config.knowledge_graph_path,
+            },
+            "feedback_loop": {
+                "enabled": True,
+                "dashboard_status": feedback_dashboard.get("status", "ok"),
+                "doc_feedback_count": feedback_dashboard.get("doc_feedback_count", 0),
+                "feedback_attribution_count": feedback_dashboard.get("feedback_attribution_count", 0),
+                "pending_classifier_candidates": feedback_dashboard.get("pending_classifier_candidate_count", 0),
+                "pending_reply_error_cases": feedback_dashboard.get("pending_reply_error_case_count", 0),
+                "pending_kg_facts": feedback_dashboard.get("pending_kg_fact_count", 0),
+            },
+            "model_manifest": health["model_manifest"],
+            "model_manifest_strict": health["model_manifest_strict"],
+        }
+
+    register_system_status_routes(app, build_system_status_snapshot=build_system_status_snapshot)
+
     @app.route("/api/rag/reload", methods=["POST"])
     def rag_reload():
         try:
@@ -351,6 +465,7 @@ def create_app():
     @app.route("/api/analyze", methods=["POST"])
     def analyze():
         start_time = time.time()
+        trace_id = str(uuid.uuid4())
         client_ip = request.remote_addr
         
         with RATE_LIMIT_LOCK:
@@ -483,6 +598,7 @@ def create_app():
 
             response_data = {
                 "status": "ok",
+                "trace_id": trace_id,
                 "location": location,
                 "units": units,
                 "unit_explanation": {
@@ -504,6 +620,31 @@ def create_app():
                     "classification": round(classification_time, 3),
                     "retrieval": round(retrieval_time, 3),
                     "generation": round(generation_time, 3),
+                },
+                "trace": {
+                    "trace_id": trace_id,
+                    "timing_ms": {
+                        "total": round(total_time * 1000, 2),
+                        "location": round(location_time * 1000, 2),
+                        "classification": round(classification_time * 1000, 2),
+                        "retrieval": round(retrieval_time * 1000, 2),
+                        "generation": round(generation_time * 1000, 2),
+                    },
+                    "model_route": {
+                        "classifier": config.classifier_route,
+                        "rag": getattr(_components["rag"], "active_backend", config.rag_backend),
+                        "generator": "qwen_lora",
+                    },
+                    "decision_summary": {
+                        "district": location.get("district", ""),
+                        "district_source": location.get("source", location.get("method", "")),
+                        "selected_unit": primary_unit,
+                        "selected_unit_source": "forced_unit" if is_forced_unit else "classifier_top1",
+                        "rag_context_count": len(docs),
+                        "generation_mode": "with_context" if docs else "simple",
+                        "evidence_strength": grounding,
+                        "needs_review": bool(verification and verification.get("needs_review")),
+                    },
                 },
             }
 

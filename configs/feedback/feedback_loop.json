@@ -1,0 +1,19 @@
+{
+  "feature_enable_active_learning": true,
+  "active_learning_confidence_threshold": 70.0,
+  "active_learning_db_path": "data/runtime/active_learning.db",
+  "active_learning_base_data_path": "data/runtime/active_learning_base.jsonl",
+  "feature_enable_knowledge_graph": true,
+  "knowledge_graph_path": "data/runtime/knowledge_graph.json",
+  "knowledge_graph_top_k": 3,
+  "feature_enable_neo4j": true,
+  "neo4j_uri": "bolt://localhost:7687",
+  "neo4j_user": "neo4j",
+  "neo4j_password": "your_password_here",
+  "enable_feedback_attribution": true,
+  "enable_doc_feedback": true,
+  "enable_classifier_candidate_pool": true,
+  "enable_reply_error_case_pool": true,
+  "enable_knowledge_review_queue": true,
+  "require_human_review": true
+}
