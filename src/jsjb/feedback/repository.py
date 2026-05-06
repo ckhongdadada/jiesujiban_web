@@ -136,6 +136,8 @@ class FeedbackDatabase:
                 FOREIGN KEY (feedback_id) REFERENCES user_feedback(id)
             )
         ''')
+        self._ensure_column(cursor, "generated_reply_error_analysis", "quality_dimensions", "TEXT DEFAULT ''")
+        self._ensure_column(cursor, "generated_reply_error_analysis", "routing_recommendations", "TEXT DEFAULT ''")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_graph_fact_queue (
@@ -196,6 +198,12 @@ class FeedbackDatabase:
         
         conn.commit()
 
+    def _ensure_column(self, cursor, table_name: str, column_name: str, column_def: str) -> None:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+
     def save_reply_error_analysis(
         self,
         feedback_id: int,
@@ -220,8 +228,10 @@ class FeedbackDatabase:
                 error_items,
                 generated_facts,
                 reference_facts,
-                verification_warnings
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                verification_warnings,
+                quality_dimensions,
+                routing_recommendations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 feedback_id,
@@ -235,6 +245,8 @@ class FeedbackDatabase:
                 json.dumps(analysis.get("generated_facts", []), ensure_ascii=False),
                 json.dumps(analysis.get("reference_facts", []), ensure_ascii=False),
                 json.dumps(verification.get("warnings", []), ensure_ascii=False),
+                json.dumps(analysis.get("quality_dimensions", {}), ensure_ascii=False),
+                json.dumps(analysis.get("routing_recommendations", []), ensure_ascii=False),
             ),
         )
 
@@ -262,11 +274,20 @@ class FeedbackDatabase:
             return None
 
         record = dict(row)
-        for key in ["error_types", "error_items", "generated_facts", "reference_facts", "verification_warnings"]:
+        for key in [
+            "error_types",
+            "error_items",
+            "generated_facts",
+            "reference_facts",
+            "verification_warnings",
+            "quality_dimensions",
+            "routing_recommendations",
+        ]:
             try:
-                record[key] = json.loads(record.get(key) or "[]")
+                fallback = "{}" if key == "quality_dimensions" else "[]"
+                record[key] = json.loads(record.get(key) or fallback)
             except json.JSONDecodeError:
-                record[key] = []
+                record[key] = {} if key == "quality_dimensions" else []
         return record
 
     def record_doc_feedback(self, doc_id: str, is_helpful: bool, query: str = "") -> None:

@@ -1,3 +1,5 @@
+"""Generated-reply quality attribution and error extraction."""
+
 from __future__ import annotations
 
 import re
@@ -9,18 +11,37 @@ from src.jsjb.reply_generation.fact_extraction import FactExtractor
 from src.jsjb.reply_generation.verification import verify_generated_reply
 
 
-DISTRICT_PATTERN = re.compile(r"(东城区|西城区|朝阳区|海淀区|丰台区|石景山区|门头沟区|房山区|通州区|顺义区|昌平区|大兴区|怀柔区|平谷区|密云区|延庆区)")
-STREET_PATTERN = re.compile(r"([\u4e00-\u9fa5]{2,12}(?:街道|镇|乡))")
+BEIJING_DISTRICTS = [
+    "东城区",
+    "西城区",
+    "朝阳区",
+    "海淀区",
+    "丰台区",
+    "石景山区",
+    "门头沟区",
+    "房山区",
+    "通州区",
+    "顺义区",
+    "昌平区",
+    "大兴区",
+    "怀柔区",
+    "平谷区",
+    "密云区",
+    "延庆区",
+]
+
+DISTRICT_PATTERN = re.compile("|".join(re.escape(item) for item in BEIJING_DISTRICTS))
+STREET_PATTERN = re.compile(r"([\u4e00-\u9fa5]{2,12}(?:街道|镇|乡|办事处))")
 
 
 class ReplyErrorExtractor:
-    """Compare a generated reply against a reference reply and emit structured errors."""
+    """Compare a generated reply with references/RAG evidence and attribute quality issues."""
 
     GREETING_PATTERNS = [
-        r"^尊敬的.*?[，,：:\n]",
-        r"^您好[！!，,：:\n]?",
-        r"^你好[！!，,：:\n]?",
-        r"^市民朋友[，,：:\n]?",
+        r"^尊敬的.*?[，,！!\n]",
+        r"^您好\s*[！!，,：:\n]?",
+        r"^你好\s*[！!，,：:\n]?",
+        r"^市民朋友\s*[，,！!\n]?",
     ]
 
     CLOSING_PATTERNS = [
@@ -29,7 +50,7 @@ class ReplyErrorExtractor:
         r"祝您.*$",
         r"特此回复.*$",
         r"如有疑问.*$",
-        r"[\u4e00-\u9fa5]{2,20}(?:委员会|办公室|管理局|街道办|镇政府|政府|局)\s*\n?\s*\d{4}年\d{1,2}月\d{1,2}日\s*$",
+        r"\n\s*[\u4e00-\u9fa5]{2,20}(?:委员会|办公室|管理局|街道办|镇政府|政府|局)\s*\n?\s*\d{4}年\d{1,2}月\d{1,2}日\s*$",
         r"\d{4}年\d{1,2}月\d{1,2}日\s*$",
     ]
 
@@ -37,22 +58,33 @@ class ReplyErrorExtractor:
         "已安排",
         "已责成",
         "已督促",
-        "将继续",
-        "立即整改",
+        "已协调",
+        "已处理",
+        "已整改",
         "现场核查",
+        "现场查看",
         "维修",
         "清理",
         "整治",
         "协调",
-        "反馈",
         "办理",
         "解决",
+        "反馈",
+        "下一步",
+        "将继续",
     ]
 
     FORMAT_VIOLATION_PATTERNS = [
-        (r"您好|你好|尊敬的", "包含问候语"),
-        (r"感谢您|欢迎您|祝您|特此回复", "包含结束套话"),
-        (r"联系电话[:：]?\s*\d", "包含联系方式，可能偏离简洁回复格式"),
+        (r"您好|你好|尊敬的", "包含问候语，不符合当前“直接输出办理结果”的生成约束。"),
+        (r"感谢您|欢迎您|祝您|特此回复", "包含结束套话，不符合当前精简回复格式。"),
+        (r"联系电话[:：]?\s*\d", "包含联系方式，可能偏离演示系统的简洁回复要求。"),
+    ]
+
+    GENERIC_PROGRESS_PATTERNS = [
+        r"正在.*?(研究|推进|协调)",
+        r"请.*?耐心等待",
+        r"已转.*?部门",
+        r"请.*?关注.*?进展",
     ]
 
     def __init__(self):
@@ -64,6 +96,9 @@ class ReplyErrorExtractor:
         reference_reply: str,
         retrieval_hits: Optional[List[Dict[str, Any]]] = None,
         location_result: Optional[Dict[str, Any]] = None,
+        expected_unit: str = "",
+        feedback_type: str = "",
+        comments: str = "",
     ) -> Dict[str, Any]:
         generated_reply = generated_reply or ""
         reference_reply = reference_reply or ""
@@ -79,14 +114,12 @@ class ReplyErrorExtractor:
         errors: List[Dict[str, Any]] = []
         errors.extend(self._detect_format_violations(generated_reply))
         errors.extend(self._compare_facts(generated_facts, reference_facts))
-        errors.extend(
-            self._compare_locations(
-                normalized_generated,
-                normalized_reference,
-                location_result,
-            )
-        )
+        errors.extend(self._compare_locations(normalized_generated, normalized_reference, location_result))
         errors.extend(self._compare_actions(normalized_generated, normalized_reference))
+        errors.extend(self._detect_actionability(normalized_generated))
+        errors.extend(self._detect_expected_unit_issue(normalized_generated, expected_unit))
+        errors.extend(self._detect_retrieval_grounding_issues(normalized_generated, retrieval_hits))
+        errors.extend(self._detect_user_reported_issue(feedback_type, comments))
 
         verification = None
         if retrieval_hits:
@@ -119,6 +152,12 @@ class ReplyErrorExtractor:
         deduped_errors = self._dedupe_errors(errors)
         severity = self._overall_severity(deduped_errors)
         error_types = sorted({item["error_type"] for item in deduped_errors})
+        quality_dimensions = self._build_quality_dimensions(
+            errors=deduped_errors,
+            retrieval_hits=retrieval_hits,
+            normalized_generated=normalized_generated,
+            normalized_reference=normalized_reference,
+        )
         summary = self._build_summary(deduped_errors, normalized_generated, normalized_reference)
 
         return {
@@ -133,6 +172,8 @@ class ReplyErrorExtractor:
             "reference_facts": reference_facts,
             "similarity": self._build_similarity(normalized_generated, normalized_reference),
             "verification": verification,
+            "quality_dimensions": quality_dimensions,
+            "routing_recommendations": self._build_routing_recommendations(error_types, severity),
             "needs_review": severity in {"medium", "high"} or bool(deduped_errors),
         }
 
@@ -142,7 +183,7 @@ class ReplyErrorExtractor:
             text = re.sub(pattern, "", text, flags=re.MULTILINE)
         for pattern in self.CLOSING_PATTERNS:
             text = re.sub(pattern, "", text, flags=re.MULTILINE | re.DOTALL)
-        text = re.sub(r"^\s*[：:,，。；;、\n]+", "", text)
+        text = re.sub(r"^\s*[：:,，。！!\n]+", "", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -176,6 +217,9 @@ class ReplyErrorExtractor:
         generated_facts: List[Dict[str, Any]],
         reference_facts: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        if not reference_facts:
+            return []
+
         errors: List[Dict[str, Any]] = []
         generated_index = self._index_facts(generated_facts)
         reference_index = self._index_facts(reference_facts)
@@ -199,7 +243,7 @@ class ReplyErrorExtractor:
                 errors.append(comparison)
 
         for key, gen_fact in generated_index.items():
-            if key not in reference_index and reference_index:
+            if key not in reference_index:
                 errors.append(
                     {
                         "error_type": "hallucinated_fact",
@@ -217,14 +261,10 @@ class ReplyErrorExtractor:
         for fact in facts:
             content = fact.get("content", {})
             key_parts = [fact.get("fact_type", "")]
-            if "project" in content:
-                key_parts.append(str(content.get("project", "")))
-            if "name" in content:
-                key_parts.append(str(content.get("name", "")))
-            if "unit" in content:
-                key_parts.append(str(content.get("unit", "")))
-            key = "|".join(key_parts)
-            indexed[key] = fact
+            for field in ("project", "name", "unit"):
+                if field in content:
+                    key_parts.append(str(content.get(field, "")))
+            indexed["|".join(key_parts)] = fact
         return indexed
 
     def _compare_fact_values(
@@ -236,43 +276,25 @@ class ReplyErrorExtractor:
         ref_content = reference_fact.get("content", {})
         fact_type = reference_fact.get("fact_type", "")
 
-        if fact_type == "project_status":
-            if gen_content.get("status") != ref_content.get("status"):
-                return {
-                    "error_type": "status_conflict",
-                    "severity": "high",
-                    "message": "项目状态与标准回复不一致。",
-                    "generated_value": gen_content.get("status", ""),
-                    "reference_value": ref_content.get("status", ""),
-                }
-        elif fact_type == "demolition_status":
-            if gen_content.get("demolition_status") != ref_content.get("demolition_status"):
-                return {
-                    "error_type": "status_conflict",
-                    "severity": "high",
-                    "message": "征拆状态与标准回复不一致。",
-                    "generated_value": gen_content.get("demolition_status", ""),
-                    "reference_value": ref_content.get("demolition_status", ""),
-                }
-        elif fact_type == "responsible_unit":
-            if gen_content.get("unit") != ref_content.get("unit"):
-                return {
-                    "error_type": "unit_mismatch",
-                    "severity": "high",
-                    "message": "责任单位与标准回复不一致。",
-                    "generated_value": gen_content.get("unit", ""),
-                    "reference_value": ref_content.get("unit", ""),
-                }
-        elif fact_type == "public_resource":
-            if gen_content.get("status") != ref_content.get("status"):
-                return {
-                    "error_type": "status_conflict",
-                    "severity": "medium",
-                    "message": "公共资源状态与标准回复不一致。",
-                    "generated_value": gen_content.get("status", ""),
-                    "reference_value": ref_content.get("status", ""),
-                }
-        return None
+        field_by_type = {
+            "project_status": "status",
+            "demolition_status": "demolition_status",
+            "responsible_unit": "unit",
+            "public_resource": "status",
+        }
+        field = field_by_type.get(fact_type)
+        if not field:
+            return None
+        if gen_content.get(field) == ref_content.get(field):
+            return None
+        error_type = "unit_mismatch" if fact_type == "responsible_unit" else "status_conflict"
+        return {
+            "error_type": error_type,
+            "severity": "high" if fact_type in {"project_status", "demolition_status", "responsible_unit"} else "medium",
+            "message": f"{fact_type} 与标准回复不一致。",
+            "generated_value": gen_content.get(field, ""),
+            "reference_value": ref_content.get(field, ""),
+        }
 
     def _compare_locations(
         self,
@@ -294,7 +316,7 @@ class ReplyErrorExtractor:
                 {
                     "error_type": "district_or_street_mismatch",
                     "severity": "high",
-                    "message": "生成回复出现与标准答案/识别地点不一致的行政区。",
+                    "message": "生成回复出现与标准答案或识别地点不一致的行政区。",
                     "generated_value": "、".join(sorted(generated_districts)),
                     "reference_value": "、".join(sorted(reference_districts)),
                 }
@@ -330,7 +352,129 @@ class ReplyErrorExtractor:
             ]
         return []
 
+    def _detect_actionability(self, normalized_generated: str) -> List[Dict[str, Any]]:
+        if not normalized_generated:
+            return [
+                {
+                    "error_type": "empty_reply",
+                    "severity": "high",
+                    "message": "生成回复为空。",
+                    "generated_value": "",
+                    "reference_value": "",
+                }
+            ]
+        has_action = any(keyword in normalized_generated for keyword in self.ACTION_KEYWORDS)
+        has_generic_progress = any(re.search(pattern, normalized_generated) for pattern in self.GENERIC_PROGRESS_PATTERNS)
+        if has_generic_progress and len(normalized_generated) < 120:
+            return [
+                {
+                    "error_type": "low_actionability",
+                    "severity": "medium",
+                    "message": "回复偏向进度性套话，缺少具体核实情况或办理结果。",
+                    "generated_value": normalized_generated[:200],
+                    "reference_value": "",
+                }
+            ]
+        if not has_action and len(normalized_generated) < 180:
+            return [
+                {
+                    "error_type": "low_actionability",
+                    "severity": "medium",
+                    "message": "回复缺少明确办理动作，建议补充核实、处理、整改或协调结果。",
+                    "generated_value": normalized_generated[:200],
+                    "reference_value": "",
+                }
+            ]
+        return []
+
+    def _detect_expected_unit_issue(self, normalized_generated: str, expected_unit: str) -> List[Dict[str, Any]]:
+        expected_unit = (expected_unit or "").strip()
+        if not expected_unit:
+            return []
+        if expected_unit in normalized_generated:
+            return []
+        unit_suffix_hit = re.search(r"[\u4e00-\u9fa5]{2,20}(?:委|局|办事处|政府|街道|中心)", normalized_generated)
+        if unit_suffix_hit:
+            return [
+                {
+                    "error_type": "unit_mismatch",
+                    "severity": "medium",
+                    "message": "生成回复中出现其他疑似承办单位，且未体现当前预测单位。",
+                    "generated_value": unit_suffix_hit.group(0),
+                    "reference_value": expected_unit,
+                }
+            ]
+        return []
+
+    def _detect_retrieval_grounding_issues(
+        self,
+        normalized_generated: str,
+        retrieval_hits: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if not retrieval_hits:
+            return [
+                {
+                    "error_type": "weak_evidence",
+                    "severity": "medium",
+                    "message": "本次反馈没有携带 RAG 参考文档，生成回复缺少可追溯依据。",
+                    "generated_value": normalized_generated[:200],
+                    "reference_value": "",
+                }
+            ]
+
+        scores = []
+        for hit in retrieval_hits:
+            for key in ("score", "similarity", "final_score"):
+                if key in hit:
+                    try:
+                        scores.append(float(hit[key]))
+                    except (TypeError, ValueError):
+                        pass
+                    break
+        if scores and max(scores) < 0.2:
+            return [
+                {
+                    "error_type": "weak_evidence",
+                    "severity": "medium",
+                    "message": "RAG 检索最高相关度较低，生成回复可能缺少充分依据。",
+                    "generated_value": str(round(max(scores), 4)),
+                    "reference_value": "",
+                }
+            ]
+        return []
+
+    def _detect_user_reported_issue(self, feedback_type: str, comments: str) -> List[Dict[str, Any]]:
+        text = f"{feedback_type} {comments}".strip()
+        if not text:
+            return []
+        mapping = [
+            ("单位", "unit_mismatch", "用户反馈指出责任单位可能错误。"),
+            ("地", "district_or_street_mismatch", "用户反馈指出地点或辖区可能错误。"),
+            ("事实", "fact_conflict", "用户反馈指出回复事实可能错误。"),
+            ("无用", "low_actionability", "用户反馈指出回复帮助不足。"),
+        ]
+        errors = []
+        for marker, error_type, message in mapping:
+            if marker in text:
+                errors.append(
+                    {
+                        "error_type": error_type,
+                        "severity": "medium",
+                        "message": message,
+                        "generated_value": comments[:200],
+                        "reference_value": "",
+                    }
+                )
+        return errors
+
     def _build_similarity(self, normalized_generated: str, normalized_reference: str) -> Dict[str, float]:
+        if not normalized_reference:
+            return {
+                "char_overlap": 0.0,
+                "sequence_ratio": 0.0,
+                "generated_length": float(len(normalized_generated)),
+                "reference_length": 0.0,
+            }
         generated_chars = set(normalized_generated)
         reference_chars = set(normalized_reference)
         overlap = len(generated_chars & reference_chars) / max(len(reference_chars), 1)
@@ -366,6 +510,40 @@ class ReplyErrorExtractor:
             return "medium"
         return "low"
 
+    def _build_quality_dimensions(
+        self,
+        *,
+        errors: List[Dict[str, Any]],
+        retrieval_hits: List[Dict[str, Any]],
+        normalized_generated: str,
+        normalized_reference: str,
+    ) -> Dict[str, str]:
+        error_types = {item.get("error_type", "") for item in errors}
+        return {
+            "format_compliance": "fail" if "format_violation" in error_types else "pass",
+            "grounding": "weak" if "weak_evidence" in error_types else ("strong" if retrieval_hits else "none"),
+            "fact_consistency": "fail" if {"status_conflict", "fact_conflict", "hallucinated_fact"} & error_types else "pass",
+            "actionability": "warn" if {"low_actionability", "action_missing"} & error_types else "pass",
+            "location_consistency": "fail" if "district_or_street_mismatch" in error_types else "pass",
+            "unit_consistency": "fail" if "unit_mismatch" in error_types else "pass",
+            "reference_similarity": "available" if normalized_reference else "not_available",
+            "reply_length": "empty" if not normalized_generated else ("long" if len(normalized_generated) > 260 else "normal"),
+        }
+
+    def _build_routing_recommendations(self, error_types: List[str], severity: str) -> List[str]:
+        recommendations = []
+        if severity in {"medium", "high"}:
+            recommendations.append("manual_review")
+        if "weak_evidence" in error_types:
+            recommendations.append("review_rag_corpus_or_query_rewrite")
+        if "unit_mismatch" in error_types:
+            recommendations.append("add_to_unit_classifier_active_learning")
+        if {"status_conflict", "fact_conflict", "hallucinated_fact"} & set(error_types):
+            recommendations.append("queue_fact_verification")
+        if "low_actionability" in error_types:
+            recommendations.append("adjust_generation_prompt_or_finetune_data")
+        return recommendations
+
     def _build_summary(
         self,
         errors: List[Dict[str, Any]],
@@ -373,10 +551,14 @@ class ReplyErrorExtractor:
         normalized_reference: str,
     ) -> str:
         if not errors:
-            return "未检测到明显结构化错误。"
+            return "未检测到明显结构化问题。"
         similarity = self._build_similarity(normalized_generated, normalized_reference)
+        if normalized_reference:
+            return (
+                f"共识别 {len(errors)} 类问题，序列相似度 {similarity['sequence_ratio']:.2f}，"
+                "建议重点复核事实、责任单位、地点和办理动作。"
+            )
         return (
-            f"共识别 {len(errors)} 类问题，"
-            f"序列相似度 {similarity['sequence_ratio']:.2f}，"
-            f"重点建议人工复核高风险事实、责任单位和办理动作。"
+            f"共识别 {len(errors)} 类问题；本次没有标准回复，"
+            "归因主要依据格式约束、RAG 依据、地点/单位一致性和回复可操作性。"
         )
