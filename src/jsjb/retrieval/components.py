@@ -228,7 +228,8 @@ class FeedbackScoreCache:
 
             new_scores: dict[str, float] = {}
             for doc_id, net_votes in rows:
-                new_scores[doc_id] = float(net_votes) * 0.05
+                boost = max(min(float(net_votes) * 0.05, 0.30), -0.30)
+                new_scores[str(doc_id)] = boost
 
             with self._lock:
                 self._scores = new_scores
@@ -241,6 +242,20 @@ class FeedbackScoreCache:
         self._try_load()
         with self._lock:
             return self._scores.get(doc_id, 0.0)
+
+    def get_boost_for_doc(self, doc: dict[str, Any]) -> float:
+        self._try_load()
+        candidates = [
+            str(doc.get("id", "")).strip(),
+            str(doc.get("doc_id", "")).strip(),
+            f"{doc.get('source', '')}|{doc.get('title', '')}".strip("|"),
+            str(doc.get("title", "")).strip(),
+        ]
+        with self._lock:
+            for key in candidates:
+                if key and key in self._scores:
+                    return self._scores[key]
+            return 0.0
 
     def record_feedback(self, doc_id: str, is_helpful: bool) -> None:
         delta = 0.05 if is_helpful else -0.05

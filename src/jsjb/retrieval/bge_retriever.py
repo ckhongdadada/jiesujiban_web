@@ -572,7 +572,7 @@ class PolicyRetriever:
 
         if self._feedback_cache:
             try:
-                fb = self._feedback_cache.get_boost(doc.get("id", ""))
+                fb = self._feedback_cache.get_boost_for_doc(doc)
                 boosted += fb
             except Exception:
                 pass
@@ -705,7 +705,7 @@ class PolicyRetriever:
             fb = 0.0
             if self._feedback_cache:
                 try:
-                    fb = self._feedback_cache.get_boost(doc.get("id", ""))
+                    fb = self._feedback_cache.get_boost_for_doc(doc)
                 except Exception:
                     pass
 

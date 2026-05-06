@@ -309,7 +309,104 @@ class FeedbackDatabase:
             "FROM doc_feedback GROUP BY doc_id"
         )
         rows = cursor.fetchall()
-        return {row[0]: float(row[1]) * 0.05 for row in rows}
+        return {row[0]: max(min(float(row[1]) * 0.05, 0.30), -0.30) for row in rows}
+
+    def get_doc_feedback_summary(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Return document-level helpful/unhelpful feedback ranking for dashboard use."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT
+                doc_id,
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE 0 END) AS helpful_count,
+                SUM(CASE WHEN is_helpful = 0 THEN 1 ELSE 0 END) AS unhelpful_count,
+                SUM(CASE WHEN is_helpful = 1 THEN 1 ELSE -1 END) AS net_votes,
+                MAX(created_at) AS latest_feedback_at
+            FROM doc_feedback
+            GROUP BY doc_id
+            ORDER BY ABS(net_votes) DESC, total_count DESC, latest_feedback_at DESC
+            LIMIT ?
+            ''',
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            total = row["total_count"] or 0
+            helpful = row["helpful_count"] or 0
+            results.append(
+                {
+                    "doc_id": row["doc_id"],
+                    "total_count": total,
+                    "helpful_count": helpful,
+                    "unhelpful_count": row["unhelpful_count"] or 0,
+                    "net_votes": row["net_votes"] or 0,
+                    "helpful_rate": round(helpful / total * 100, 2) if total else 0.0,
+                    "feedback_boost": round(max(min((row["net_votes"] or 0) * 0.05, 0.30), -0.30), 4),
+                    "latest_feedback_at": row["latest_feedback_at"],
+                }
+            )
+        return results
+
+    def get_quality_error_distribution(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Aggregate generated-reply attribution error types."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT error_types
+            FROM generated_reply_error_analysis
+            WHERE error_types IS NOT NULL AND TRIM(error_types) != ''
+            '''
+        )
+        counts: Dict[str, int] = {}
+        for row in cursor.fetchall():
+            try:
+                error_types = json.loads(row["error_types"] or "[]")
+            except json.JSONDecodeError:
+                error_types = []
+            for error_type in error_types:
+                counts[str(error_type)] = counts.get(str(error_type), 0) + 1
+        return [
+            {"error_type": key, "count": value}
+            for key, value in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:limit]
+        ]
+
+    def get_feedback_dashboard(self, limit: int = 20) -> Dict[str, Any]:
+        """Build a dashboard payload for the feedback learning loop."""
+        stats = self.get_statistics()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM generated_reply_error_analysis")
+        reply_error_count = cursor.fetchone()[0]
+        cursor.execute("SELECT severity, COUNT(*) FROM generated_reply_error_analysis GROUP BY severity ORDER BY COUNT(*) DESC")
+        severity_distribution = [
+            {"severity": row[0] or "unknown", "count": row[1]}
+            for row in cursor.fetchall()
+        ]
+        cursor.execute("SELECT COUNT(*) FROM knowledge_graph_fact_queue WHERE review_status = 'pending'")
+        pending_kg_facts = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM doc_feedback")
+        doc_feedback_count = cursor.fetchone()[0]
+
+        latest_negative = self.search_feedback(is_helpful=False, limit=limit)
+        return {
+            "status": "ok",
+            "stats": stats,
+            "feedback_statistics": stats,
+            "reply_error_count": reply_error_count,
+            "reply_error_analysis_count": reply_error_count,
+            "severity_distribution": severity_distribution,
+            "quality_error_distribution": self.get_quality_error_distribution(limit=limit),
+            "doc_feedback_count": doc_feedback_count,
+            "doc_feedback_ranking": self.get_doc_feedback_summary(limit=limit),
+            "pending_kg_facts": pending_kg_facts,
+            "pending_kg_fact_count": pending_kg_facts,
+            "latest_negative_feedback": latest_negative,
+        }
 
     def queue_knowledge_graph_facts(
         self,

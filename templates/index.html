@@ -981,6 +981,48 @@ footer {
 .kg-demo-stage {
   margin-bottom: 6px;
 }
+.feedback-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.feedback-metric {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 10px 12px;
+}
+.feedback-metric-value {
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.feedback-metric-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-muted);
+  letter-spacing: .06em;
+  margin-top: 4px;
+}
+.feedback-dashboard-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.feedback-dashboard-item {
+  border: 1px solid var(--rule);
+  background: var(--white);
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.feedback-dashboard-item strong {
+  color: var(--ink);
+}
+@media (max-width: 768px) {
+  .feedback-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>
 </head>
 <body>
@@ -1147,6 +1189,44 @@ footer {
         <div class="feedback-analysis-title">自动错误分析</div>
         <div class="feedback-analysis-summary" id="feedbackAnalysisSummary"></div>
         <ul class="feedback-analysis-list" id="feedbackAnalysisList"></ul>
+      </div>
+    </div>
+
+    <div class="result-block" id="feedbackDashboardBlock">
+      <div class="reply-label">反馈闭环仪表盘</div>
+      <div class="kg-review-actions" style="margin-bottom:10px">
+        <button class="kg-review-btn" onclick="refreshFeedbackDashboard()">刷新反馈统计</button>
+      </div>
+      <div class="feedback-dashboard-grid">
+        <div class="feedback-metric">
+          <div class="feedback-metric-value" id="fbMetricTotal">-</div>
+          <div class="feedback-metric-label">反馈总数</div>
+        </div>
+        <div class="feedback-metric">
+          <div class="feedback-metric-value" id="fbMetricHelpfulRate">-</div>
+          <div class="feedback-metric-label">有用率</div>
+        </div>
+        <div class="feedback-metric">
+          <div class="feedback-metric-value" id="fbMetricQuality">-</div>
+          <div class="feedback-metric-label">质量归因</div>
+        </div>
+        <div class="feedback-metric">
+          <div class="feedback-metric-value" id="fbMetricKg">-</div>
+          <div class="feedback-metric-label">待审事实</div>
+        </div>
+      </div>
+      <div class="processing-time" id="feedbackDashboardHint">点击刷新可查看负反馈、RAG 文档评分和生成质量问题分布。</div>
+      <div class="feedback-analysis-box" style="display:block">
+        <div class="feedback-analysis-title">质量问题 Top 项</div>
+        <div class="feedback-dashboard-list" id="qualityErrorList">
+          <div class="result-empty">暂无数据</div>
+        </div>
+      </div>
+      <div class="feedback-analysis-box" style="display:block">
+        <div class="feedback-analysis-title">RAG 文档反馈排行</div>
+        <div class="feedback-dashboard-list" id="docFeedbackList">
+          <div class="result-empty">暂无数据</div>
+        </div>
       </div>
     </div>
 
@@ -1480,6 +1560,11 @@ function renderRag(items) {
   items.forEach((item, idx) => {
     const card = document.createElement('div');
     card.className = 'rag-card';
+    const score = Number(item.score || 0);
+    const feedbackBoost = Number(item.feedback_boost || 0);
+    const feedbackBoostText = Math.abs(feedbackBoost) > 0.0001
+      ? ` · 反馈加权 ${feedbackBoost > 0 ? '+' : ''}${feedbackBoost.toFixed(2)}`
+      : '';
     
     const docType = item.doc_type || '参考材料';
     const typeClass = docType.includes('政策') ? 'type-policy' : 
@@ -1496,7 +1581,7 @@ function renderRag(items) {
         ${item.source ? `<span class="rag-tag">${item.source}</span>` : ''}
       </div>
       <div class="rag-card-snippet">${item.snippet || '无摘要'}</div>
-      <div class="rag-card-score">相关度: ${(item.score * 100).toFixed(1)}%</div>
+      <div class="rag-card-score">相关度: ${(score * 100).toFixed(1)}%${feedbackBoostText}</div>
     `;
     container.appendChild(card);
   });
@@ -1626,6 +1711,79 @@ async function loadReplyErrorAnalysis(feedbackId) {
     }
   } catch (e) {
     console.error('加载错误分析失败:', e);
+  }
+}
+
+function renderDashboardList(containerId, items, renderItem) {
+  const list = document.getElementById(containerId);
+  const values = Array.isArray(items) ? items : [];
+  if (!values.length) {
+    list.innerHTML = '<div class="result-empty">暂无数据</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  values.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'feedback-dashboard-item';
+    row.innerHTML = renderItem(item);
+    list.appendChild(row);
+  });
+}
+
+async function refreshFeedbackDashboard() {
+  const hint = document.getElementById('feedbackDashboardHint');
+  hint.textContent = '正在加载反馈闭环统计...';
+
+  try {
+    const res = await fetch('/api/feedback/dashboard?limit=20');
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || '反馈统计加载失败');
+    }
+
+    const stats = data.feedback_statistics || data.stats || {};
+    const total = Number(stats.total_feedback || stats.total_count || 0);
+    const helpful = Number(stats.helpful_count || 0);
+    const helpfulRate = stats.helpful_rate !== undefined
+      ? `${Number(stats.helpful_rate).toFixed(1)}%`
+      : (total > 0 ? `${((helpful / total) * 100).toFixed(1)}%` : '-');
+
+    document.getElementById('fbMetricTotal').textContent = total;
+    document.getElementById('fbMetricHelpfulRate').textContent = helpfulRate;
+    document.getElementById('fbMetricQuality').textContent = data.reply_error_analysis_count || data.reply_error_count || 0;
+    document.getElementById('fbMetricKg').textContent = data.pending_kg_fact_count || data.pending_kg_facts || 0;
+
+    renderDashboardList(
+      'qualityErrorList',
+      data.quality_error_distribution || [],
+      item => `
+        <strong>${item.error_type || 'unknown'}</strong>
+        <span>${item.count || 0} 次</span>
+      `
+    );
+
+    renderDashboardList(
+      'docFeedbackList',
+      data.doc_feedback_ranking || [],
+      item => {
+        const boost = Number(item.feedback_boost || 0);
+        const rate = Number(item.helpful_rate || 0);
+        const ratePercent = rate > 1 ? rate : rate * 100;
+        const docId = item.doc_id || 'unknown_doc';
+        return `
+          <strong>${docId}</strong>
+          <span>净票 ${item.net_votes || 0} · 有用率 ${ratePercent.toFixed(1)}% · 加权 ${boost > 0 ? '+' : ''}${boost.toFixed(2)}</span>
+        `;
+      }
+    );
+
+    hint.textContent = `已加载：RAG 文档反馈 ${data.doc_feedback_count || 0} 条，待审事实 ${data.pending_kg_fact_count || 0} 条。`;
+  } catch (e) {
+    console.error('加载反馈闭环统计失败:', e);
+    hint.textContent = `加载失败：${e.message || e}`;
+    renderDashboardList('qualityErrorList', [], () => '');
+    renderDashboardList('docFeedbackList', [], () => '');
   }
 }
 
@@ -1867,6 +2025,7 @@ async function submitFeedback(isHelpful) {
         document.getElementById('kgReviewStatusFilter').value = 'pending';
         await refreshKnowledgeGraphReviewCandidates();
       }
+      await refreshFeedbackDashboard();
     } else {
       goodBtn.disabled = false;
       badBtn.disabled = false;
@@ -1910,6 +2069,9 @@ async function submitRagFeedback(isUseful) {
     is_helpful: isUseful,
     feedback_type: 'rag_retrieval',
     comments: buildRagFeedbackComments(isUseful, reason),
+    retrieval: lastRetrieval || [],
+    location: lastLocation || {},
+    units: currentUnits || [],
     processing_time: getTotalProcessingSeconds(lastProcessingTime),
     timestamp: new Date().toISOString()
   };
@@ -1922,6 +2084,7 @@ async function submitRagFeedback(isUseful) {
     });
     if (res.ok) {
       document.getElementById('feedbackSuccess').style.display = 'block';
+      await refreshFeedbackDashboard();
     } else {
       goodBtn.disabled = false;
       badBtn.disabled = false;
@@ -1971,6 +2134,7 @@ async function checkHealth() {
 }
 checkHealth();
 refreshKnowledgeGraphReviewCandidates();
+refreshFeedbackDashboard();
 </script>
 </body>
 </html>
