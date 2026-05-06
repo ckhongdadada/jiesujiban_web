@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.jsjb.feedback.attribution import FeedbackAttributor
+
 
 NEGATIVE_FEEDBACK_TYPES = {
     "bad",
@@ -27,9 +29,13 @@ class FeedbackAutomationResult:
     doc_feedback_recorded: int = 0
     active_learning_collected: bool = False
     reply_error_analysis_id: Optional[int] = None
+    feedback_attribution_id: Optional[int] = None
+    classifier_candidate_id: Optional[int] = None
+    reply_error_case_id: Optional[int] = None
     queued_fact_count: int = 0
     routing_reasons: List[str] = field(default_factory=list)
     quality_attribution: Optional[Dict[str, Any]] = None
+    feedback_attribution: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -44,10 +50,12 @@ class FeedbackAutomationRouter:
         feedback_db,
         reply_error_extractor,
         sample_collector=None,
+        feedback_attributor=None,
     ) -> None:
         self.feedback_db = feedback_db
         self.reply_error_extractor = reply_error_extractor
         self.sample_collector = sample_collector
+        self.feedback_attributor = feedback_attributor or FeedbackAttributor()
 
     def run(
         self,
@@ -114,12 +122,55 @@ class FeedbackAutomationRouter:
                 if result.queued_fact_count:
                     result.routing_reasons.append("reference_facts_queued_for_review")
 
+        attribution = self.feedback_attributor.analyze(
+            feedback_record=feedback_record,
+            request_data=request_data,
+            quality_attribution=result.quality_attribution,
+        )
+        result.feedback_attribution = attribution
+        result.feedback_attribution_id = self.feedback_db.save_feedback_attribution(feedback_id, attribution)
+        result.routing_reasons.append("feedback_attribution_saved")
+
+        if "add_classifier_training_candidate" in attribution.get("recommended_actions", []):
+            candidate_id = self.feedback_db.add_classifier_training_candidate(
+                feedback_id=feedback_id,
+                feedback_record=feedback_record,
+                request_data=request_data,
+                attribution=attribution,
+            )
+            if candidate_id is not None:
+                result.classifier_candidate_id = candidate_id
+                result.routing_reasons.append("classifier_training_candidate_queued")
+
+        if "save_reply_error_case" in attribution.get("recommended_actions", []) or (
+            result.quality_attribution and result.quality_attribution.get("needs_review")
+        ):
+            result.reply_error_case_id = self.feedback_db.add_reply_error_case(
+                feedback_id=feedback_id,
+                analysis_id=result.reply_error_analysis_id,
+                feedback_record=feedback_record,
+                request_data=request_data,
+                attribution=attribution,
+                quality_attribution=result.quality_attribution,
+            )
+            result.routing_reasons.append("reply_error_case_saved")
+
+        if "queue_knowledge_review_candidate" in attribution.get("recommended_actions", []):
+            queued = self.feedback_db.queue_attribution_knowledge_candidate(
+                feedback_id=feedback_id,
+                attribution=attribution,
+            )
+            if queued:
+                result.queued_fact_count += queued
+                result.routing_reasons.append("attribution_fact_queued_for_review")
+
         result.active_learning_collected = self._collect_active_learning_sample(
             feedback_id=feedback_id,
             feedback_record=feedback_record,
             request_data=request_data,
             is_negative=is_negative,
             quality_attribution=result.quality_attribution,
+            feedback_attribution=result.feedback_attribution,
             doc_feedback_recorded=result.doc_feedback_recorded,
         )
         if result.active_learning_collected:
@@ -191,6 +242,13 @@ class FeedbackAutomationRouter:
                     doc_id=doc_id,
                     is_helpful=bool(item.get("is_helpful", default_helpful)),
                     query=item.get("query") or query,
+                    reason=item.get("reason") or item.get("comment") or "",
+                    reason_tags=item.get("reason_tags") or item.get("tags") or [],
+                    context={
+                        "score": item.get("score"),
+                        "title": item.get("title", ""),
+                        "source": item.get("source", ""),
+                    },
                 )
                 recorded += 1
             return recorded
@@ -203,6 +261,11 @@ class FeedbackAutomationRouter:
                 doc_id=doc_id,
                 is_helpful=default_helpful,
                 query=query,
+                context={
+                    "score": hit.get("score"),
+                    "title": hit.get("title", ""),
+                    "source": hit.get("source", ""),
+                },
             )
             recorded += 1
         return recorded
@@ -242,6 +305,7 @@ class FeedbackAutomationRouter:
         request_data: Dict[str, Any],
         is_negative: bool,
         quality_attribution: Optional[Dict[str, Any]],
+        feedback_attribution: Optional[Dict[str, Any]],
         doc_feedback_recorded: int,
     ) -> bool:
         if self.sample_collector is None:
@@ -258,7 +322,10 @@ class FeedbackAutomationRouter:
             if isinstance(unit, dict) and unit.get("unit")
         }
         top_confidence = units[0].get("confidence", 0.0) if units and isinstance(units[0], dict) else 0.0
-        error_types = (quality_attribution or {}).get("error_types", [])
+        error_types = sorted(
+            set((quality_attribution or {}).get("error_types", []) or [])
+            | set((feedback_attribution or {}).get("error_tags", []) or [])
+        )
         trigger_reason = (
             feedback_record.get("feedback_type")
             or feedback_record.get("comments", "")[:120]
@@ -284,6 +351,9 @@ class FeedbackAutomationRouter:
                     "feedback_type": feedback_record.get("feedback_type", ""),
                     "reply_error_types": error_types,
                     "reply_error_severity": (quality_attribution or {}).get("severity", ""),
+                    "feedback_primary_error": (feedback_attribution or {}).get("primary_error", ""),
+                    "corrected_unit": (feedback_attribution or {}).get("corrected_unit", ""),
+                    "corrected_district": (feedback_attribution or {}).get("corrected_district", ""),
                     "doc_feedback_recorded": doc_feedback_recorded,
                     "quality_dimensions": (quality_attribution or {}).get("quality_dimensions", {}),
                 },

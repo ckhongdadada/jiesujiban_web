@@ -65,6 +65,10 @@ def register_feedback_routes(
                     "feedback_id": feedback_id,
                     "reply_error_analysis_id": automation.reply_error_analysis_id,
                     "reply_error_analysis": automation.quality_attribution,
+                    "feedback_attribution_id": automation.feedback_attribution_id,
+                    "feedback_attribution": automation.feedback_attribution,
+                    "classifier_candidate_id": automation.classifier_candidate_id,
+                    "reply_error_case_id": automation.reply_error_case_id,
                     "queued_fact_count": automation.queued_fact_count,
                     "active_learning_collected": automation.active_learning_collected,
                     "doc_feedback_recorded": automation.doc_feedback_recorded,
@@ -92,6 +96,23 @@ def register_feedback_routes(
             return jsonify(feedback_db.get_feedback_dashboard(limit=limit))
         except Exception as e:
             logger.error(f"[feedback_dashboard] {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.route("/api/feedback/learning-loop", methods=["GET"])
+    def feedback_learning_loop():
+        try:
+            limit = request.args.get("limit", 50, type=int)
+            return jsonify(
+                {
+                    "status": "ok",
+                    "dashboard": feedback_db.get_feedback_dashboard(limit=limit),
+                    "classifier_training_candidates": feedback_db.list_classifier_training_candidates(limit=limit),
+                    "reply_error_cases": feedback_db.list_reply_error_cases(limit=limit),
+                    "knowledge_review_candidates": feedback_db.list_knowledge_graph_fact_queue(limit=limit),
+                }
+            )
+        except Exception as e:
+            logger.error(f"[feedback_learning_loop] {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route("/api/feedback/error-analysis/<int:feedback_id>", methods=["GET"])

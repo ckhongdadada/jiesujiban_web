@@ -118,6 +118,7 @@ class PolicyRetriever:
         enable_graph_augment=None,
         enable_feedback_boost=None,
         enable_post_processing=None,
+        graph_manager=None,
     ):
         default_corpus_path = get_policy_corpus_path()
         if not default_corpus_path.exists():
@@ -197,10 +198,19 @@ class PolicyRetriever:
         )
 
         self._reranker = Reranker() if self.enable_reranker else None
-        self._graph_augmentor = GraphAugmentor() if self.enable_graph_augment else None
+        self._graph_augmentor = GraphAugmentor(graph_manager=graph_manager) if self.enable_graph_augment else None
         self._feedback_cache = FeedbackScoreCache() if self.enable_feedback_boost else None
 
         self._build_index()
+
+    def attach_graph_manager(self, graph_manager=None) -> bool:
+        """Attach or replace the graph used by RAG graph augmentation."""
+        if not self.enable_graph_augment:
+            return False
+        if self._graph_augmentor is None:
+            self._graph_augmentor = GraphAugmentor(graph_manager=graph_manager)
+            return bool(getattr(self._graph_augmentor, "_graph", None) is not None)
+        return self._graph_augmentor.attach_graph_manager(graph_manager)
 
     @staticmethod
     def _resolve_bool(value, fallback):
@@ -494,20 +504,39 @@ class PolicyRetriever:
         if not NUMPY_AVAILABLE:
             return None, None, None
 
+        scores = None
         dense_scores = None
         sparse_scores = None
 
-        if self.embedding_model is not None and self.dense_doc_vectors is not None:
+        use_chunk_scoring = self.enable_chunking and self.chunk_vectors is not None and len(self.chunks) > 0
+
+        if self.embedding_model is not None:
             query_vectors = self.embedding_model.encode(
                 rewritten_queries,
                 normalize_embeddings=True,
                 show_progress_bar=False,
             )
-            dense_scores = np.max(np.dot(query_vectors, self.dense_doc_vectors.T), axis=0)
+            if use_chunk_scoring:
+                chunk_sims = np.max(np.dot(query_vectors, self.chunk_vectors.T), axis=0)
+                doc_count = len(self.docs)
+                dense_scores = np.zeros(doc_count, dtype=np.float32)
+                for chunk_idx, doc_idx in self.chunk_doc_map.items():
+                    if chunk_sims[chunk_idx] > dense_scores[doc_idx]:
+                        dense_scores[doc_idx] = chunk_sims[chunk_idx]
+            elif self.dense_doc_vectors is not None:
+                dense_scores = np.max(np.dot(query_vectors, self.dense_doc_vectors.T), axis=0)
 
-        if self.sparse_vectorizer is not None and self.sparse_doc_vectors is not None and SKLEARN_AVAILABLE:
-            query_vectors = self.sparse_vectorizer.transform(rewritten_queries)
-            sparse_scores = np.asarray(cosine_similarity(query_vectors, self.sparse_doc_vectors).max(axis=0)).ravel()
+        if self.sparse_vectorizer is not None and SKLEARN_AVAILABLE:
+            query_tfidf = self.sparse_vectorizer.transform(rewritten_queries)
+            if use_chunk_scoring and self.chunk_sparse_vectors is not None:
+                chunk_sparse_sims = np.asarray(cosine_similarity(query_tfidf, self.chunk_sparse_vectors).max(axis=0)).ravel()
+                doc_count = len(self.docs)
+                sparse_scores = np.zeros(doc_count, dtype=np.float32)
+                for chunk_idx, doc_idx in self.chunk_doc_map.items():
+                    if chunk_sparse_sims[chunk_idx] > sparse_scores[doc_idx]:
+                        sparse_scores[doc_idx] = chunk_sparse_sims[chunk_idx]
+            elif self.sparse_doc_vectors is not None:
+                sparse_scores = np.asarray(cosine_similarity(query_tfidf, self.sparse_doc_vectors).max(axis=0)).ravel()
 
         if dense_scores is not None and sparse_scores is not None and self.active_backend == "hybrid":
             total_weight = max(self.dense_weight + self.sparse_weight, 1e-9)
@@ -570,9 +599,11 @@ class PolicyRetriever:
             if locality_terms:
                 boosted += 0.04
 
+        feedback_boost_val = 0.0
         if self._feedback_cache:
             try:
                 fb = self._feedback_cache.get_boost_for_doc(doc)
+                feedback_boost_val = fb
                 boosted += fb
             except Exception:
                 pass
@@ -584,7 +615,7 @@ class PolicyRetriever:
             except Exception:
                 pass
 
-        return boosted, matched_terms
+        return boosted, matched_terms, feedback_boost_val
 
     def _post_process_results(
         self,
@@ -608,11 +639,13 @@ class PolicyRetriever:
         type_count: dict[str, int] = defaultdict(int)
         diverse = []
         fallback = []
+        max_per_type = max(1, top_k // 2 + 1)
         for hit in deduped:
             dt = hit.get("doc_type", "参考材料")
-            type_count[dt] += 1
-            diverse.append(hit)
-            if type_count[dt] > top_k:
+            if type_count[dt] < max_per_type:
+                diverse.append(hit)
+                type_count[dt] += 1
+            else:
                 fallback.append(hit)
 
         if len(diverse) < top_k and fallback:
@@ -621,14 +654,16 @@ class PolicyRetriever:
         return diverse[:top_k]
 
     @staticmethod
-    def _is_fact_contradictory(doc: dict[str, Any], query: str) -> bool:
+    def _contradiction_penalty(doc: dict[str, Any], query: str) -> float:
         content = doc.get("content", "")
         negation_patterns = ["不存在", "暂未建设", "尚未建设", "未涉及", "不涉及", "无此", "未有"]
         has_negation = any(p in content for p in negation_patterns)
         if not has_negation:
-            return False
+            return 0.0
         affirmation = ["已建成", "已建设", "正在施工", "正在建设", "已运营", "已开放", "已完成"]
-        return any(a in query for a in affirmation)
+        if any(a in query for a in affirmation):
+            return -0.12
+        return 0.0
 
     def search(
         self,
@@ -652,7 +687,7 @@ class PolicyRetriever:
 
         ranked_items = []
         for idx, (score, doc) in enumerate(zip(scores, self.docs)):
-            boosted_score, matched_terms = self._rerank_score(
+            boosted_score, matched_terms, fb_val = self._rerank_score(
                 score,
                 doc,
                 query_terms,
@@ -667,7 +702,7 @@ class PolicyRetriever:
                     district_priority = 2
                 elif doc.get("district") in ("北京市", "全市"):
                     district_priority = 1
-            ranked_items.append((boosted_score, district_priority, matched_terms, doc, idx))
+            ranked_items.append((boosted_score, district_priority, matched_terms, doc, idx, fb_val))
 
         ranked_items.sort(key=lambda item: (item[0], item[1]), reverse=True)
 
@@ -677,37 +712,39 @@ class PolicyRetriever:
 
         candidates = []
         seen_keys = set()
-        for score, _, matched_terms, doc, idx in ranked_items[:candidate_count]:
+        for score, _, matched_terms, doc, idx, fb_val in ranked_items[:candidate_count]:
             if score <= 0:
                 continue
-            if self.enable_post_processing and self._is_fact_contradictory(doc, query):
-                continue
+            if self.enable_post_processing:
+                contradiction_penalty = self._contradiction_penalty(doc, query)
+                if contradiction_penalty < 0:
+                    score = score + contradiction_penalty
+                    if score <= 0:
+                        continue
             dedup_key = (doc.get("title", ""), doc.get("source", ""))
             if dedup_key in seen_keys:
                 continue
             seen_keys.add(dedup_key)
-            candidates.append((score, doc, matched_terms, idx))
+            candidates.append((score, doc, matched_terms, idx, fb_val))
 
         if self._reranker and self.enable_reranker and len(candidates) > top_k:
             try:
-                reranked = self._reranker.rerank(query, candidates, top_k=max(top_k * 2, 10))
-                candidates = reranked
+                stripped = [(s, d, m, i) for s, d, m, i, _ in candidates]
+                reranked = self._reranker.rerank(query, stripped, top_k=max(top_k * 2, 10))
+                fb_map = {id(d): fb for _, d, _, _, fb in candidates}
+                candidates = [(s, d, m, i, fb_map.get(id(d), 0.0)) for s, d, m, i in reranked]
             except Exception:
                 pass
 
         results = []
         for item in candidates[:max(top_k * 3, 15)]:
-            if len(item) == 4:
+            if len(item) >= 5:
+                score, doc, matched_terms, idx, fb = item
+            elif len(item) == 4:
                 score, doc, matched_terms, idx = item
+                fb = 0.0
             else:
-                score, doc, matched_terms, idx = item[0], item[1], item[2], item[3]
-
-            fb = 0.0
-            if self._feedback_cache:
-                try:
-                    fb = self._feedback_cache.get_boost_for_doc(doc)
-                except Exception:
-                    pass
+                continue
 
             hit = RetrievalHit(
                 doc_id=doc.get("id", ""),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import threading
@@ -147,6 +148,14 @@ def create_app():
                 graph_size = len(graph_manager.graph.nodes)
             logger.info(f"[knowledge_graph] loaded nodes: {graph_size}")
 
+            def _close_graph():
+                try:
+                    graph_manager.close()
+                except Exception:
+                    pass
+
+            atexit.register(_close_graph)
+
         if config.enable_active_learning and _components["active_learning"] is None:
             sample_collector = SampleCollector(db_path=config.active_learning_db_path)
             annotation_manager = AnnotationManager(sample_collector)
@@ -203,6 +212,8 @@ def create_app():
         kg = _components.get("knowledge_graph")
         feedback = feedback_db.get_feedback_by_id(candidate.get("feedback_id"))
         manager = kg["manager"] if kg else None
+        if manager is None:
+            logger.warning("[import_reviewed_fact] knowledge graph is not enabled/loaded, fact will only be saved to structured KB")
         return import_reviewed_fact(
             candidate,
             feedback=feedback,
@@ -242,7 +253,10 @@ def create_app():
                         enable_graph_augment=config.rag_enable_graph_augment,
                         enable_feedback_boost=config.rag_enable_feedback_boost,
                         enable_post_processing=config.rag_enable_post_processing,
+                        graph_manager=(_components.get("knowledge_graph") or {}).get("manager"),
                     )
+                elif hasattr(_components["rag"], "attach_graph_manager"):
+                    _components["rag"].attach_graph_manager((_components.get("knowledge_graph") or {}).get("manager"))
             
             if _components["classifier"] is None:
                 _components["classifier"] = model_manager.get_model("classifier")

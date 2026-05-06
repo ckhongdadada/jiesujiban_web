@@ -29,11 +29,15 @@ class FeedbackDatabase:
         return cls._instance
     
     def __init__(self, db_path: str = None):
-        if db_path and not hasattr(self, 'db_path'):
-            self.db_path = db_path
-            self._conn = None
-            self._conn_lock = threading.Lock()
-            self._init_database()
+        if getattr(self, '_initialized', False):
+            return
+        if db_path is None:
+            db_path = str(get_feedback_db_path())
+        self.db_path = db_path
+        self._conn = None
+        self._conn_lock = threading.Lock()
+        self._initialized = True
+        self._init_database()
     
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -46,8 +50,10 @@ class FeedbackDatabase:
         return self._conn
 
     def close(self) -> None:
+        if not hasattr(self, "_conn_lock"):
+            return
         with self._conn_lock:
-            if self._conn is not None:
+            if getattr(self, "_conn", None) is not None:
                 try:
                     self._conn.close()
                 except Exception:
@@ -62,7 +68,9 @@ class FeedbackDatabase:
                 cls._instance = None
 
     def _init_database(self) -> None:
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -177,10 +185,84 @@ class FeedbackDatabase:
                 doc_id TEXT NOT NULL,
                 is_helpful INTEGER NOT NULL,
                 query TEXT DEFAULT '',
+                reason TEXT DEFAULT '',
+                reason_tags TEXT DEFAULT '',
+                context_json TEXT DEFAULT '',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        self._ensure_column(cursor, "doc_feedback", "reason", "TEXT DEFAULT ''")
+        self._ensure_column(cursor, "doc_feedback", "reason_tags", "TEXT DEFAULT ''")
+        self._ensure_column(cursor, "doc_feedback", "context_json", "TEXT DEFAULT ''")
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_doc_feedback_doc_id ON doc_feedback(doc_id)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback_attribution (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feedback_id INTEGER NOT NULL,
+                primary_error TEXT DEFAULT '',
+                error_tags TEXT DEFAULT '',
+                confidence REAL DEFAULT 0,
+                corrected_unit TEXT DEFAULT '',
+                corrected_district TEXT DEFAULT '',
+                recommended_actions TEXT DEFAULT '',
+                evidence TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (feedback_id) REFERENCES user_feedback(id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_attr_feedback_id ON feedback_attribution(feedback_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_attr_primary_error ON feedback_attribution(primary_error)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS classifier_training_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feedback_id INTEGER NOT NULL,
+                tag TEXT DEFAULT '',
+                title TEXT DEFAULT '',
+                body TEXT DEFAULT '',
+                district TEXT DEFAULT '',
+                predicted_unit TEXT DEFAULT '',
+                corrected_unit TEXT DEFAULT '',
+                top3_units TEXT DEFAULT '',
+                confidence REAL DEFAULT 0,
+                priority INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'feedback_attribution',
+                status TEXT DEFAULT 'pending_review',
+                reason TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                exported_at TEXT,
+                FOREIGN KEY (feedback_id) REFERENCES user_feedback(id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cls_candidate_status ON classifier_training_candidates(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_cls_candidate_feedback_id ON classifier_training_candidates(feedback_id)')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reply_error_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feedback_id INTEGER NOT NULL,
+                analysis_id INTEGER,
+                title TEXT DEFAULT '',
+                body TEXT DEFAULT '',
+                generated_reply TEXT DEFAULT '',
+                reference_reply TEXT DEFAULT '',
+                selected_unit TEXT DEFAULT '',
+                corrected_unit TEXT DEFAULT '',
+                district TEXT DEFAULT '',
+                rag_docs TEXT DEFAULT '',
+                error_tags TEXT DEFAULT '',
+                severity TEXT DEFAULT '',
+                diagnosis TEXT DEFAULT '',
+                recommended_actions TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending_review',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (feedback_id) REFERENCES user_feedback(id),
+                FOREIGN KEY (analysis_id) REFERENCES generated_reply_error_analysis(id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reply_error_cases_status ON reply_error_cases(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reply_error_cases_feedback_id ON reply_error_cases(feedback_id)')
 
         # 创建统计视图
         cursor.execute('''
@@ -290,13 +372,32 @@ class FeedbackDatabase:
                 record[key] = {} if key == "quality_dimensions" else []
         return record
 
-    def record_doc_feedback(self, doc_id: str, is_helpful: bool, query: str = "") -> None:
+    def record_doc_feedback(
+        self,
+        doc_id: str,
+        is_helpful: bool,
+        query: str = "",
+        reason: str = "",
+        reason_tags: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Record whether a retrieved document was helpful for RAG feedback loop."""
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO doc_feedback (doc_id, is_helpful, query) VALUES (?, ?, ?)",
-            (doc_id, 1 if is_helpful else 0, query),
+            '''
+            INSERT INTO doc_feedback (
+                doc_id, is_helpful, query, reason, reason_tags, context_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                doc_id,
+                1 if is_helpful else 0,
+                query,
+                reason or "",
+                json.dumps(reason_tags or [], ensure_ascii=False),
+                json.dumps(context or {}, ensure_ascii=False),
+            ),
         )
         conn.commit()
 
@@ -349,6 +450,268 @@ class FeedbackDatabase:
                 }
             )
         return results
+
+    def save_feedback_attribution(self, feedback_id: int, attribution: Dict[str, Any]) -> int:
+        """Persist automatic attribution that routes feedback into learning queues."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO feedback_attribution (
+                feedback_id,
+                primary_error,
+                error_tags,
+                confidence,
+                corrected_unit,
+                corrected_district,
+                recommended_actions,
+                evidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                feedback_id,
+                attribution.get("primary_error", ""),
+                json.dumps(attribution.get("error_tags", []), ensure_ascii=False),
+                float(attribution.get("confidence", 0) or 0),
+                attribution.get("corrected_unit", ""),
+                attribution.get("corrected_district", ""),
+                json.dumps(attribution.get("recommended_actions", []), ensure_ascii=False),
+                json.dumps(attribution.get("evidence", []), ensure_ascii=False),
+            ),
+        )
+        attribution_id = cursor.lastrowid
+        conn.commit()
+        return attribution_id
+
+    def add_classifier_training_candidate(
+        self,
+        *,
+        feedback_id: int,
+        feedback_record: Dict[str, Any],
+        request_data: Dict[str, Any],
+        attribution: Dict[str, Any],
+    ) -> Optional[int]:
+        """Add a reviewed-by-human candidate for future unit-classifier training."""
+        corrected_unit = (attribution.get("corrected_unit") or request_data.get("corrected_unit") or "").strip()
+        if not corrected_unit:
+            return None
+
+        units = request_data.get("units") or []
+        top3_units = [
+            str(item.get("unit", "")).strip()
+            for item in units[:3]
+            if isinstance(item, dict) and item.get("unit")
+        ]
+        tags = set(attribution.get("error_tags") or [])
+        priority = 60
+        if "unit_top3_missing" in tags:
+            priority += 30
+        if attribution.get("confidence", 0) >= 0.8:
+            priority += 10
+        priority = min(priority, 100)
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO classifier_training_candidates (
+                feedback_id,
+                tag,
+                title,
+                body,
+                district,
+                predicted_unit,
+                corrected_unit,
+                top3_units,
+                confidence,
+                priority,
+                reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                feedback_id,
+                feedback_record.get("tag", ""),
+                feedback_record.get("title", ""),
+                feedback_record.get("body", ""),
+                attribution.get("corrected_district") or feedback_record.get("district", ""),
+                feedback_record.get("unit", ""),
+                corrected_unit,
+                json.dumps(top3_units, ensure_ascii=False),
+                float(attribution.get("confidence", 0) or 0),
+                priority,
+                "; ".join(attribution.get("evidence", []) or []),
+            ),
+        )
+        candidate_id = cursor.lastrowid
+        conn.commit()
+        return candidate_id
+
+    def add_reply_error_case(
+        self,
+        *,
+        feedback_id: int,
+        analysis_id: Optional[int],
+        feedback_record: Dict[str, Any],
+        request_data: Dict[str, Any],
+        attribution: Dict[str, Any],
+        quality_attribution: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Save a generated-reply error case for later prompt/LoRA improvement."""
+        quality_attribution = quality_attribution or {}
+        retrieval_hits = (
+            request_data.get("retrieval")
+            or request_data.get("retrieval_hits")
+            or request_data.get("rag_docs")
+            or []
+        )
+        error_tags = sorted(set(attribution.get("error_tags") or []) | set(quality_attribution.get("error_types") or []))
+        recommendations = sorted(
+            set(attribution.get("recommended_actions") or [])
+            | set(quality_attribution.get("routing_recommendations") or [])
+        )
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO reply_error_cases (
+                feedback_id,
+                analysis_id,
+                title,
+                body,
+                generated_reply,
+                reference_reply,
+                selected_unit,
+                corrected_unit,
+                district,
+                rag_docs,
+                error_tags,
+                severity,
+                diagnosis,
+                recommended_actions
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                feedback_id,
+                analysis_id,
+                feedback_record.get("title", ""),
+                feedback_record.get("body", ""),
+                feedback_record.get("reply", ""),
+                request_data.get("reference_reply", ""),
+                feedback_record.get("unit", ""),
+                attribution.get("corrected_unit", ""),
+                attribution.get("corrected_district") or feedback_record.get("district", ""),
+                json.dumps(retrieval_hits, ensure_ascii=False),
+                json.dumps(error_tags, ensure_ascii=False),
+                quality_attribution.get("severity") or attribution.get("primary_error", ""),
+                quality_attribution.get("summary") or "; ".join(attribution.get("evidence", []) or []),
+                json.dumps(recommendations, ensure_ascii=False),
+            ),
+        )
+        case_id = cursor.lastrowid
+        conn.commit()
+        return case_id
+
+    def list_classifier_training_candidates(
+        self,
+        status: str = "pending_review",
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List unit-classifier training candidates generated from feedback."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT *
+            FROM classifier_training_candidates
+            WHERE status = ?
+            ORDER BY priority DESC, confidence DESC, created_at DESC
+            LIMIT ?
+            ''',
+            (status, limit),
+        )
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["top3_units"] = json.loads(item.get("top3_units") or "[]")
+            except json.JSONDecodeError:
+                item["top3_units"] = []
+            results.append(item)
+        return results
+
+    def list_reply_error_cases(
+        self,
+        status: str = "pending_review",
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List generated-reply error cases generated from feedback."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT *
+            FROM reply_error_cases
+            WHERE status = ?
+            ORDER BY
+                CASE severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
+                created_at DESC
+            LIMIT ?
+            ''',
+            (status, limit),
+        )
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            item = dict(row)
+            for key in ["rag_docs", "error_tags", "recommended_actions"]:
+                try:
+                    item[key] = json.loads(item.get(key) or "[]")
+                except json.JSONDecodeError:
+                    item[key] = []
+            results.append(item)
+        return results
+
+    def queue_attribution_knowledge_candidate(
+        self,
+        *,
+        feedback_id: int,
+        attribution: Dict[str, Any],
+    ) -> int:
+        """Queue simple user-corrected facts for review before graph import."""
+        corrected_unit = (attribution.get("corrected_unit") or "").strip()
+        corrected_district = (attribution.get("corrected_district") or "").strip()
+        if not corrected_unit and not corrected_district:
+            return 0
+
+        content = {
+            "unit": corrected_unit,
+            "district": corrected_district,
+            "source_text": "；".join(attribution.get("evidence", []) or []),
+            "confidence": attribution.get("confidence", 0),
+        }
+        fact_type = "unit_mapping" if corrected_unit else "location_correction"
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO knowledge_graph_fact_queue (
+                feedback_id,
+                analysis_id,
+                fact_type,
+                fact_content,
+                source_reply_type
+            ) VALUES (?, NULL, ?, ?, ?)
+            ''',
+            (
+                feedback_id,
+                fact_type,
+                json.dumps(content, ensure_ascii=False),
+                "feedback_attribution",
+            ),
+        )
+        conn.commit()
+        return 1
 
     def get_quality_error_distribution(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Aggregate generated-reply attribution error types."""
@@ -527,6 +890,12 @@ class FeedbackDatabase:
         pending_kg_facts = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM doc_feedback")
         doc_feedback_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM feedback_attribution")
+        attribution_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM classifier_training_candidates WHERE status = 'pending_review'")
+        pending_classifier_candidates = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM reply_error_cases WHERE status = 'pending_review'")
+        pending_reply_error_cases = cursor.fetchone()[0]
 
         latest_negative = self.search_feedback(is_helpful=False, limit=limit)
         return {
@@ -541,6 +910,9 @@ class FeedbackDatabase:
             "doc_feedback_ranking": self.get_doc_feedback_summary(limit=limit),
             "pending_kg_facts": pending_kg_facts,
             "pending_kg_fact_count": pending_kg_facts,
+            "feedback_attribution_count": attribution_count,
+            "pending_classifier_candidate_count": pending_classifier_candidates,
+            "pending_reply_error_case_count": pending_reply_error_cases,
             "latest_negative_feedback": latest_negative,
         }
 

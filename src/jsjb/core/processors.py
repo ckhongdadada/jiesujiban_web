@@ -11,7 +11,7 @@ import hashlib
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Callable
+from typing import Any
 
 
 class MetricsCollector:
@@ -180,7 +180,7 @@ def init_enhanced_processors(
     ner_component: Any = None,
     classifier_component: Any = None,
     rag_component: Any = None,
-    generation_func: Callable | None = None,
+    generation_func: Any = None,
     enable_cache: bool = True,
     enable_disambiguation: bool = False,
     cache_ttl: float = 300.0,

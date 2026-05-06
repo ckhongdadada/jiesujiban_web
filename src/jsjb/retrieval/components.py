@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.jsjb.core.paths import get_feedback_db_path
+from src.jsjb.core.paths import get_feedback_db_path, get_project_root
 
 try:
     from src.jsjb.knowledge.graph import InMemoryGraph
@@ -216,7 +216,8 @@ class FeedbackScoreCache:
             return
 
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn.execute("PRAGMA busy_timeout=3000")
             cursor = conn.cursor()
 
             cursor.execute(
@@ -266,24 +267,24 @@ class FeedbackScoreCache:
 class GraphAugmentor:
     """知识图谱增强查询"""
 
-    def __init__(self):
+    def __init__(self, graph_manager=None):
         self._graph = None
         self._loaded = False
+        self.attach_graph_manager(graph_manager)
+
+    def attach_graph_manager(self, graph_manager=None) -> bool:
+        """Attach the runtime graph loaded by the Flask app/model manager."""
+        if graph_manager is not None:
+            if hasattr(graph_manager, "graph") and graph_manager.graph is not None:
+                self._graph = graph_manager.graph
+                self._loaded = True
+                return True
+        return False
 
     def _ensure_graph(self):
         if self._loaded:
             return
         self._loaded = True
-        try:
-            from src.jsjb.knowledge.graph import KnowledgeGraphManager
-            mgr = KnowledgeGraphManager()
-            if hasattr(mgr, "graph") and mgr.graph is not None:
-                self._graph = mgr.graph
-        except Exception:
-            try:
-                self._graph = InMemoryGraph()
-            except Exception:
-                pass
 
     def augment_query_terms(self, query: str, district: str | None = None) -> list[str]:
         self._ensure_graph()
@@ -433,7 +434,7 @@ class Reranker:
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
             import torch
 
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            base_dir = str(get_project_root())
             local_path = os.path.join(base_dir, "reranker_models", self.model_name.replace("/", "___"))
 
             if os.path.exists(local_path):
