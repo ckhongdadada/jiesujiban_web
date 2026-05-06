@@ -221,15 +221,35 @@ class StructuredKnowledgeBase:
         
         try:
             if fact_type == "project_status":
+                project_name = fact.get("project", "")
+                existing = self.get_project_status(project_name) if project_name else None
                 project_info = ProjectInfo(
-                    name=fact.get("project", ""),
-                    status=fact.get("status", ""),
-                    demolition_status=fact.get("demolition_status", ""),
-                    current_phase=fact.get("current_phase", ""),
-                    expected_completion=fact.get("expected_completion", ""),
-                    responsible_unit=fact.get("responsible_unit", ""),
-                    district=fact.get("district", ""),
-                    street=fact.get("street", ""),
+                    name=project_name,
+                    status=fact.get("status", "") or (existing.status if existing else ""),
+                    demolition_status=fact.get("demolition_status", "") or (existing.demolition_status if existing else ""),
+                    current_phase=fact.get("current_phase", "") or (existing.current_phase if existing else ""),
+                    expected_completion=fact.get("expected_completion", "") or (existing.expected_completion if existing else ""),
+                    responsible_unit=fact.get("responsible_unit", "") or (existing.responsible_unit if existing else ""),
+                    district=fact.get("district", "") or (existing.district if existing else ""),
+                    street=fact.get("street", "") or (existing.street if existing else ""),
+                    source=fact.get("source", "user_verified"),
+                    confidence=fact.get("confidence", 0.8)
+                )
+                self.update_project_status(project_info)
+                return True
+
+            elif fact_type == "demolition_status":
+                project_name = fact.get("project", "")
+                existing = self.get_project_status(project_name) if project_name else None
+                project_info = ProjectInfo(
+                    name=project_name,
+                    status=existing.status if existing else "",
+                    demolition_status=fact.get("demolition_status", "") or (existing.demolition_status if existing else ""),
+                    current_phase=existing.current_phase if existing else "",
+                    expected_completion=existing.expected_completion if existing else "",
+                    responsible_unit=existing.responsible_unit if existing else "",
+                    district=fact.get("district", "") or (existing.district if existing else ""),
+                    street=fact.get("street", "") or (existing.street if existing else ""),
                     source=fact.get("source", "user_verified"),
                     confidence=fact.get("confidence", 0.8)
                 )
@@ -250,7 +270,7 @@ class StructuredKnowledgeBase:
                 self.update_public_resource(resource)
                 return True
             
-            elif fact_type == "unit_mapping":
+            elif fact_type in {"unit_mapping", "responsible_unit"}:
                 mapping = UnitMapping(
                     project_name=fact.get("project", ""),
                     district=fact.get("district", ""),
@@ -258,6 +278,13 @@ class StructuredKnowledgeBase:
                     responsible_unit=fact.get("unit", "")
                 )
                 self.update_unit_mapping(mapping)
+                if mapping.project_name:
+                    existing = self.get_project_status(mapping.project_name)
+                    if existing:
+                        existing.responsible_unit = mapping.responsible_unit or existing.responsible_unit
+                        existing.district = mapping.district or existing.district
+                        existing.street = mapping.street or existing.street
+                        self.update_project_status(existing)
                 return True
             
         except Exception as e:

@@ -82,7 +82,7 @@ def register_knowledge_review_routes(
             import_result = ""
             if action == "approve":
                 import_result_payload = import_reviewed_fact_to_graph(candidate)
-                imported_to_graph = True
+                imported_to_graph = bool(import_result_payload.get("graph_updated"))
                 import_result = json.dumps(import_result_payload, ensure_ascii=False)
 
             feedback_db.review_knowledge_graph_fact_candidate(

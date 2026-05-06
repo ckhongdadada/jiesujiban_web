@@ -54,7 +54,7 @@ from src.jsjb.active_learning.api import (
     create_active_learning_blueprint,
     add_sample_collection_middleware,
 )
-from src.jsjb.knowledge import KnowledgeGraphManager, GraphQueryEngine
+from src.jsjb.knowledge import KnowledgeGraphManager, GraphQueryEngine, import_reviewed_fact
 
 RATE_LIMIT_LOCK = threading.Lock()
 IP_REQUEST_TIMES = {}
@@ -201,89 +201,14 @@ def create_app():
 
     def import_reviewed_fact_to_graph(candidate: dict) -> dict:
         kg = _components.get("knowledge_graph")
-        if not kg:
-            raise RuntimeError("knowledge graph is not enabled")
-
-        manager = kg["manager"]
-        fact_type = candidate.get("fact_type", "")
-        content = candidate.get("fact_content", {}) or {}
         feedback = feedback_db.get_feedback_by_id(candidate.get("feedback_id"))
-        district = (feedback or {}).get("district", "")
-
-        import_result = {"fact_type": fact_type, "created_nodes": [], "created_relations": []}
-
-        if fact_type == "project_status":
-            project_name = content.get("project", "")
-            if not project_name:
-                raise ValueError("project_status fact missing project name")
-            project_id = manager.merge_entity(
-                "Project",
-                project_name,
-                {
-                    "status": content.get("status", ""),
-                    "district": district,
-                    "description": content.get("source_text", ""),
-                },
-            )
-            import_result["created_nodes"].append({"type": "Project", "id": project_id, "name": project_name})
-            return import_result
-
-        if fact_type == "demolition_status":
-            project_name = content.get("project", "")
-            if not project_name:
-                raise ValueError("demolition_status fact missing project name")
-            project_id = manager.merge_entity(
-                "Project",
-                project_name,
-                {
-                    "demolition_status": content.get("demolition_status", ""),
-                    "district": district,
-                    "description": content.get("source_text", ""),
-                },
-            )
-            import_result["created_nodes"].append({"type": "Project", "id": project_id, "name": project_name})
-            return import_result
-
-        if fact_type == "responsible_unit":
-            project_name = content.get("project", "")
-            unit_name = content.get("unit", "")
-            if not project_name or not unit_name:
-                raise ValueError("responsible_unit fact missing project or unit")
-            project_id = manager.merge_entity("Project", project_name, {"district": district})
-            org_id = manager.merge_entity("Organization", unit_name, {"district": district})
-            manager.create_relationship(org_id, project_id, "RESPONSIBLE_FOR")
-            import_result["created_nodes"].extend(
-                [
-                    {"type": "Project", "id": project_id, "name": project_name},
-                    {"type": "Organization", "id": org_id, "name": unit_name},
-                ]
-            )
-            import_result["created_relations"].append({"from": unit_name, "to": project_name, "type": "RESPONSIBLE_FOR"})
-            return import_result
-
-        if fact_type == "public_resource":
-            resource_name = content.get("name", "")
-            if not resource_name:
-                raise ValueError("public_resource fact missing resource name")
-            resource_id = manager.merge_entity(
-                "Resource",
-                resource_name,
-                {
-                    "status": content.get("status", ""),
-                    "resource_type": content.get("resource_type", ""),
-                    "address": content.get("address", ""),
-                    "phone": content.get("phone", ""),
-                },
-            )
-            import_result["created_nodes"].append({"type": "Resource", "id": resource_id, "name": resource_name})
-            if district:
-                location_id = manager.merge_entity("Location", district, {"district": district, "type": "区县"})
-                manager.create_relationship(location_id, resource_id, "HAS_RESOURCE")
-                import_result["created_nodes"].append({"type": "Location", "id": location_id, "name": district})
-                import_result["created_relations"].append({"from": district, "to": resource_name, "type": "HAS_RESOURCE"})
-            return import_result
-
-        raise ValueError(f"unsupported fact type: {fact_type}")
+        manager = kg["manager"] if kg else None
+        return import_reviewed_fact(
+            candidate,
+            feedback=feedback,
+            graph_manager=manager,
+            graph_path=config.knowledge_graph_path,
+        )
 
     init_optional_extensions()
 

@@ -374,6 +374,142 @@ class FeedbackDatabase:
             for key, value in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:limit]
         ]
 
+    def list_reply_error_analyses(
+        self,
+        limit: int = 50,
+        severity: str = "",
+    ) -> List[Dict[str, Any]]:
+        """List structured reply-error analyses joined with their feedback context."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        where = []
+        params: List[Any] = []
+        if severity:
+            where.append("a.severity = ?")
+            params.append(severity)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        cursor.execute(
+            f'''
+            SELECT
+                a.*,
+                f.tag,
+                f.title,
+                f.body,
+                f.reply,
+                f.unit,
+                f.district,
+                f.feedback_type,
+                f.comments,
+                f.is_helpful
+            FROM generated_reply_error_analysis a
+            LEFT JOIN user_feedback f ON f.id = a.feedback_id
+            {where_sql}
+            ORDER BY
+                CASE a.severity WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
+                a.created_at DESC,
+                a.id DESC
+            LIMIT ?
+            ''',
+            (*params, limit),
+        )
+        rows = cursor.fetchall()
+        records = []
+        for row in rows:
+            record = dict(row)
+            for key in [
+                "error_types",
+                "error_items",
+                "generated_facts",
+                "reference_facts",
+                "verification_warnings",
+                "quality_dimensions",
+                "routing_recommendations",
+            ]:
+                try:
+                    fallback = "{}" if key == "quality_dimensions" else "[]"
+                    record[key] = json.loads(record.get(key) or fallback)
+                except json.JSONDecodeError:
+                    record[key] = {} if key == "quality_dimensions" else []
+            records.append(record)
+        return records
+
+    def build_reply_error_attribution_report(self, limit: int = 50) -> Dict[str, Any]:
+        """Build a report-style summary for generated-reply quality attribution."""
+        records = self.list_reply_error_analyses(limit=limit)
+        severity_distribution: Dict[str, int] = {}
+        error_distribution: Dict[str, int] = {}
+        dimension_distribution: Dict[str, Dict[str, int]] = {}
+        recommendation_distribution: Dict[str, int] = {}
+
+        for record in records:
+            severity = record.get("severity") or "unknown"
+            severity_distribution[severity] = severity_distribution.get(severity, 0) + 1
+            for error_type in record.get("error_types") or []:
+                error_distribution[error_type] = error_distribution.get(error_type, 0) + 1
+            for name, value in (record.get("quality_dimensions") or {}).items():
+                dimension_distribution.setdefault(name, {})
+                text_value = str(value)
+                dimension_distribution[name][text_value] = dimension_distribution[name].get(text_value, 0) + 1
+            for recommendation in record.get("routing_recommendations") or []:
+                recommendation_distribution[recommendation] = recommendation_distribution.get(recommendation, 0) + 1
+
+        top_cases = [
+            {
+                "analysis_id": item.get("id"),
+                "feedback_id": item.get("feedback_id"),
+                "severity": item.get("severity"),
+                "title": item.get("title") or "",
+                "district": item.get("district") or "",
+                "unit": item.get("unit") or "",
+                "summary": item.get("summary") or "",
+                "error_types": item.get("error_types") or [],
+                "routing_recommendations": item.get("routing_recommendations") or [],
+                "created_at": item.get("created_at"),
+            }
+            for item in records[:10]
+        ]
+
+        lines = [
+            "# 生成回复质量归因报告",
+            f"- 分析样本数：{len(records)}",
+            f"- 高风险样本：{severity_distribution.get('high', 0)}",
+            f"- 中风险样本：{severity_distribution.get('medium', 0)}",
+            f"- 低风险样本：{severity_distribution.get('low', 0)}",
+            "",
+            "## 主要问题类型",
+        ]
+        for error_type, count in sorted(error_distribution.items(), key=lambda item: item[1], reverse=True)[:10]:
+            lines.append(f"- {error_type}: {count}")
+        if not error_distribution:
+            lines.append("- 暂无已归因问题。")
+
+        lines.append("")
+        lines.append("## 建议处理动作")
+        for recommendation, count in sorted(recommendation_distribution.items(), key=lambda item: item[1], reverse=True)[:10]:
+            lines.append(f"- {recommendation}: {count}")
+        if not recommendation_distribution:
+            lines.append("- 暂无自动建议。")
+
+        return {
+            "status": "ok",
+            "sample_count": len(records),
+            "severity_distribution": [
+                {"severity": key, "count": value}
+                for key, value in sorted(severity_distribution.items(), key=lambda item: item[1], reverse=True)
+            ],
+            "error_distribution": [
+                {"error_type": key, "count": value}
+                for key, value in sorted(error_distribution.items(), key=lambda item: item[1], reverse=True)
+            ],
+            "dimension_distribution": dimension_distribution,
+            "recommendation_distribution": [
+                {"recommendation": key, "count": value}
+                for key, value in sorted(recommendation_distribution.items(), key=lambda item: item[1], reverse=True)
+            ],
+            "top_cases": top_cases,
+            "report_markdown": "\n".join(lines),
+        }
+
     def get_feedback_dashboard(self, limit: int = 20) -> Dict[str, Any]:
         """Build a dashboard payload for the feedback learning loop."""
         stats = self.get_statistics()
@@ -469,6 +605,7 @@ class FeedbackDatabase:
                 item["fact_content"] = json.loads(item.get("fact_content") or "{}")
             except json.JSONDecodeError:
                 item["fact_content"] = {}
+            self._enrich_knowledge_graph_candidate(item)
             results.append(item)
         return results
 
@@ -487,7 +624,35 @@ class FeedbackDatabase:
             item["fact_content"] = json.loads(item.get("fact_content") or "{}")
         except json.JSONDecodeError:
             item["fact_content"] = {}
+        self._enrich_knowledge_graph_candidate(item)
         return item
+
+    def _enrich_knowledge_graph_candidate(self, item: Dict[str, Any]) -> None:
+        content = item.get("fact_content") or {}
+        fact_type = item.get("fact_type", "")
+        item["entity_name"] = (
+            content.get("project")
+            or content.get("name")
+            or content.get("entity_name")
+            or ""
+        )
+        item["fact_value"] = (
+            content.get("status")
+            or content.get("demolition_status")
+            or content.get("unit")
+            or content.get("responsible_unit")
+            or content.get("resource_type")
+            or content.get("fact_value")
+            or ""
+        )
+        item["context_excerpt"] = content.get("source_text", content.get("context_excerpt", ""))
+        item["fact_label"] = {
+            "project_status": "项目状态",
+            "demolition_status": "拆迁/征收状态",
+            "responsible_unit": "责任单位",
+            "unit_mapping": "单位映射",
+            "public_resource": "公共资源",
+        }.get(fact_type, fact_type)
 
     def review_knowledge_graph_fact_candidate(
         self,

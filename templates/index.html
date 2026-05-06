@@ -1228,6 +1228,16 @@ footer {
           <div class="result-empty">暂无数据</div>
         </div>
       </div>
+      <div class="feedback-analysis-box" style="display:block">
+        <div class="feedback-analysis-title">生成回复归因报告</div>
+        <div class="kg-review-actions" style="margin:8px 0">
+          <button class="kg-review-btn" onclick="refreshReplyAttributionReport()">刷新归因报告</button>
+        </div>
+        <div class="feedback-analysis-summary" id="replyAttributionSummary">暂无报告</div>
+        <div class="feedback-dashboard-list" id="replyAttributionList">
+          <div class="result-empty">暂无数据</div>
+        </div>
+      </div>
     </div>
 
     <div class="result-block" id="kgReviewBlock">
@@ -1787,6 +1797,36 @@ async function refreshFeedbackDashboard() {
   }
 }
 
+async function refreshReplyAttributionReport() {
+  const summary = document.getElementById('replyAttributionSummary');
+  summary.textContent = '正在生成归因报告...';
+
+  try {
+    const res = await fetch('/api/feedback/error-analysis/report?limit=50');
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      throw new Error(data.message || '归因报告加载失败');
+    }
+
+    const high = (data.severity_distribution || []).find(item => item.severity === 'high')?.count || 0;
+    const medium = (data.severity_distribution || []).find(item => item.severity === 'medium')?.count || 0;
+    summary.textContent = `分析样本 ${data.sample_count || 0} 条，高风险 ${high} 条，中风险 ${medium} 条。`;
+
+    renderDashboardList(
+      'replyAttributionList',
+      data.top_cases || [],
+      item => `
+        <strong>${item.title || `反馈 #${item.feedback_id || '-'}`}</strong>
+        <span>${item.severity || 'unknown'} · ${item.summary || ''}</span>
+      `
+    );
+  } catch (e) {
+    console.error('加载生成回复归因报告失败:', e);
+    summary.textContent = `加载失败：${e.message || e}`;
+    renderDashboardList('replyAttributionList', [], () => '');
+  }
+}
+
 // 提交反馈
 function renderKnowledgeGraphReviewCandidates(candidates) {
   const list = document.getElementById('kgReviewList');
@@ -1809,13 +1849,13 @@ function renderKnowledgeGraphReviewCandidates(candidates) {
 
     wrapper.innerHTML = `
       <div class="kg-review-item-header">
-        <span>#${item.id} · ${item.fact_type || 'fact'}</span>
+        <span>#${item.id} · ${item.fact_label || item.fact_type || 'fact'}</span>
         <span class="kg-review-status">${statusText}</span>
       </div>
       <div class="kg-review-item-title">${item.entity_name || '未命名实体'} → ${item.fact_value || '空值'}</div>
       <div class="kg-review-item-meta">
         source_reply_type=${sourceReplyType}<br>
-        feedback_id=${feedbackId} · analysis_id=${analysisId}
+        feedback_id=${feedbackId} · analysis_id=${analysisId} · imported=${item.imported_to_graph ? 'yes' : 'no'}
       </div>
       <div class="kg-review-item-context">${contextText}</div>
       <div class="kg-review-actions">
@@ -1870,9 +1910,10 @@ async function reviewKnowledgeGraphCandidate(candidateId, action) {
       throw new Error(data.message || '审核失败');
     }
     hint.textContent = action === 'approve'
-      ? `候选事实 #${candidateId} 已通过，并已写入知识图谱。`
+      ? `候选事实 #${candidateId} 已通过，并已写入知识库/知识图谱。`
       : `候选事实 #${candidateId} 已拒绝。`;
     await refreshKnowledgeGraphReviewCandidates();
+    await refreshFeedbackDashboard();
   } catch (e) {
     console.error('审核知识图谱候选事实失败:', e);
     hint.textContent = `审核失败：${e.message || e}`;
@@ -2026,6 +2067,7 @@ async function submitFeedback(isHelpful) {
         await refreshKnowledgeGraphReviewCandidates();
       }
       await refreshFeedbackDashboard();
+      await refreshReplyAttributionReport();
     } else {
       goodBtn.disabled = false;
       badBtn.disabled = false;
@@ -2135,6 +2177,7 @@ async function checkHealth() {
 checkHealth();
 refreshKnowledgeGraphReviewCandidates();
 refreshFeedbackDashboard();
+refreshReplyAttributionReport();
 </script>
 </body>
 </html>

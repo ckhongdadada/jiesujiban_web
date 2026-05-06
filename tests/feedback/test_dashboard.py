@@ -62,5 +62,12 @@ def test_feedback_dashboard_aggregates_reply_and_rag_signals(tmp_path):
     assert doc_ranking["doc-good"]["feedback_boost"] == 0.1
     assert doc_ranking["doc-bad"]["feedback_boost"] == -0.05
 
+    report = db.build_reply_error_attribution_report(limit=10)
+    assert report["status"] == "ok"
+    assert report["sample_count"] == 1
+    assert report["severity_distribution"][0]["severity"] == "medium"
+    assert any(item["error_type"] == "missing_action" for item in report["error_distribution"])
+    assert "生成回复质量归因报告" in report["report_markdown"]
+
     db.close()
     FeedbackDatabase.reset_singleton()

@@ -105,6 +105,15 @@ def register_feedback_routes(
             logger.error(f"[feedback_error_analysis] {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
 
+    @app.route("/api/feedback/error-analysis/report", methods=["GET"])
+    def feedback_error_analysis_report():
+        try:
+            limit = request.args.get("limit", 50, type=int)
+            return jsonify(feedback_db.build_reply_error_attribution_report(limit=limit))
+        except Exception as e:
+            logger.error(f"[feedback_error_analysis_report] {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
+
     @app.route("/api/feedback/list", methods=["GET"])
     def feedback_list():
         try:
