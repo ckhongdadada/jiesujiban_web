@@ -11,6 +11,7 @@ import time
 
 from src.jsjb.active_learning.sample_collector import SampleCollector
 from src.jsjb.active_learning.annotation import AnnotationManager
+from src.jsjb.active_learning.automation import ActiveLearningAutomationService
 from src.jsjb.active_learning.trainer import IncrementalTrainer
 
 
@@ -22,6 +23,7 @@ def create_active_learning_blueprint(
     """创建主动学习蓝图"""
     
     bp = Blueprint('active_learning', __name__, url_prefix='/api/active-learning')
+    automation_service = ActiveLearningAutomationService(sample_collector)
     
     @bp.route('/samples/pending', methods=['GET'])
     def get_pending_samples():
@@ -120,6 +122,27 @@ def create_active_learning_blueprint(
             **suggestion
         })
     
+    @bp.route('/review-plan', methods=['GET'])
+    def get_review_plan():
+        """Build a diversified annotation plan from pending samples."""
+        limit = request.args.get('limit', 30, type=int)
+        try:
+            return jsonify(automation_service.build_review_plan(limit=limit))
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @bp.route('/training-package', methods=['POST'])
+    def prepare_training_package():
+        """Export annotated active-learning samples into a safe training package."""
+        data = request.get_json() or {}
+        result = automation_service.prepare_training_package(
+            output_dir=data.get('output_dir'),
+            min_samples=data.get('min_samples', 1),
+            unused_only=data.get('unused_only', True),
+        )
+        status_code = 200 if result.status == "ok" else 400
+        return jsonify(result.to_dict()), status_code
+
     @bp.route('/train', methods=['POST'])
     def trigger_training():
         """触发增量训练"""
