@@ -1,0 +1,32 @@
+{
+  "training_route": "qlora_4bit",
+  "quantization": {
+    "load_in_4bit": true,
+    "bnb_4bit_quant_type": "nf4",
+    "bnb_4bit_use_double_quant": true,
+    "bnb_4bit_compute_dtype": "bf16_or_fp16"
+  },
+  "lora": {
+    "r": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "training": {
+    "max_length": 1024,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 32,
+    "epochs": 3,
+    "learning_rate": 0.00005,
+    "warmup_ratio": 0.05,
+    "optimizer": "paged_adamw_8bit"
+  }
+}

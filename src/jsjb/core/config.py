@@ -132,6 +132,17 @@ class RuntimeConfig:
     rag_multi_query_count: int = 4
     rag_dense_weight: float = 0.68
     rag_sparse_weight: float = 0.32
+    rag_enable_bm25: bool = True
+    rag_bm25_weight: float = 0.75
+    rag_tfidf_weight: float = 0.25
+    rag_enable_hyde: bool = True
+    rag_hyde_trigger_threshold: float = 0.24
+    rag_hyde_max_queries: int = 2
+    rag_reranker_model_name: str = "BAAI/bge-reranker-base"
+    rag_reranker_model_path: str = ""
+    rag_reranker_weight: float = 0.60
+    rag_enable_relevance_scorer: bool = True
+    rag_relevance_weight: float = 0.12
     enable_detailed_logging: bool = False
     enable_geo_validation: bool = False
     enable_context_disambiguation: bool = True
@@ -152,6 +163,9 @@ class RuntimeConfig:
     active_learning_confidence_threshold: float = 70.0
     active_learning_db_path: str = ""
     active_learning_base_data_path: str = ""
+    rag_active_learning_enabled: bool = True
+    rag_active_learning_score_threshold: float = 0.42
+    rag_active_learning_min_uncertainty: float = 0.18
     enable_knowledge_graph: bool = False
     knowledge_graph_path: str = ""
     knowledge_graph_top_k: int = 3
@@ -166,6 +180,15 @@ class RuntimeConfig:
     rag_enable_graph_augment: bool = True
     rag_enable_feedback_boost: bool = True
     rag_enable_post_processing: bool = True
+    rag_enable_parent_child: bool = True
+    rag_enable_adaptive_retrieval: bool = True
+    rag_adaptive_max_top_k: int = 8
+    rag_enable_semantic_chunking: bool = True
+    rag_semantic_chunk_threshold: float = 0.72
+    rag_enable_semantic_cache: bool = True
+    rag_semantic_cache_size: int = 256
+    rag_semantic_cache_threshold: float = 0.92
+    rag_semantic_cache_ttl: int = 1800
     model_manifest_path: str = ""
     enforce_model_manifest: bool = False
 
@@ -264,6 +287,20 @@ def load_runtime_config() -> RuntimeConfig:
         rag_multi_query_count=int(json_config.get("rag_multi_query_count", 4)),
         rag_dense_weight=float(json_config.get("rag_dense_weight", 0.68)),
         rag_sparse_weight=float(json_config.get("rag_sparse_weight", 0.32)),
+        rag_enable_bm25=_env_bool("RAG_ENABLE_BM25", _json_bool(json_config, "rag_enable_bm25", True)),
+        rag_bm25_weight=float(os.getenv("RAG_BM25_WEIGHT", str(json_config.get("rag_bm25_weight", 0.75)))),
+        rag_tfidf_weight=float(os.getenv("RAG_TFIDF_WEIGHT", str(json_config.get("rag_tfidf_weight", 0.25)))),
+        rag_enable_hyde=_env_bool("RAG_ENABLE_HYDE", _json_bool(json_config, "rag_enable_hyde", True)),
+        rag_hyde_trigger_threshold=float(os.getenv("RAG_HYDE_TRIGGER_THRESHOLD", str(json_config.get("rag_hyde_trigger_threshold", 0.24)))),
+        rag_hyde_max_queries=int(os.getenv("RAG_HYDE_MAX_QUERIES", str(json_config.get("rag_hyde_max_queries", 2)))),
+        rag_reranker_model_name=os.getenv("RAG_RERANKER_MODEL_NAME", json_config.get("rag_reranker_model_name", "BAAI/bge-reranker-base")),
+        rag_reranker_model_path=_resolve_config_path(
+            base_dir,
+            os.getenv("RAG_RERANKER_MODEL_PATH", json_config.get("rag_reranker_model_path", "")),
+        ),
+        rag_reranker_weight=float(os.getenv("RAG_RERANKER_WEIGHT", str(json_config.get("rag_reranker_weight", 0.60)))),
+        rag_enable_relevance_scorer=_env_bool("RAG_ENABLE_RELEVANCE_SCORER", _json_bool(json_config, "rag_enable_relevance_scorer", True)),
+        rag_relevance_weight=float(os.getenv("RAG_RELEVANCE_WEIGHT", str(json_config.get("rag_relevance_weight", 0.12)))),
         enable_detailed_logging=_json_bool(json_config, "feature_enable_detailed_logging", False),
         enable_geo_validation=_json_bool(json_config, "feature_enable_geo_validation", False),
         enable_context_disambiguation=_json_bool(json_config, "feature_enable_context_disambiguation", True),
@@ -298,6 +335,9 @@ def load_runtime_config() -> RuntimeConfig:
                 os.path.join(base_dir, "data", "runtime", "active_learning_base.jsonl"),
             ),
         ),
+        rag_active_learning_enabled=_json_bool(json_config, "rag_active_learning_enabled", True),
+        rag_active_learning_score_threshold=float(json_config.get("rag_active_learning_score_threshold", 0.42)),
+        rag_active_learning_min_uncertainty=float(json_config.get("rag_active_learning_min_uncertainty", 0.18)),
         enable_knowledge_graph=_json_bool(json_config, "feature_enable_knowledge_graph", False),
         knowledge_graph_path=_resolve_config_path(
             base_dir,
@@ -318,6 +358,15 @@ def load_runtime_config() -> RuntimeConfig:
         rag_enable_graph_augment=_env_bool("RAG_ENABLE_GRAPH_AUGMENT", _json_bool(json_config, "rag_enable_graph_augment", True)),
         rag_enable_feedback_boost=_env_bool("RAG_ENABLE_FEEDBACK_BOOST", _json_bool(json_config, "rag_enable_feedback_boost", True)),
         rag_enable_post_processing=_env_bool("RAG_ENABLE_POST_PROCESSING", _json_bool(json_config, "rag_enable_post_processing", True)),
+        rag_enable_parent_child=_env_bool("RAG_ENABLE_PARENT_CHILD", _json_bool(json_config, "rag_enable_parent_child", True)),
+        rag_enable_adaptive_retrieval=_env_bool("RAG_ENABLE_ADAPTIVE_RETRIEVAL", _json_bool(json_config, "rag_enable_adaptive_retrieval", True)),
+        rag_adaptive_max_top_k=int(os.getenv("RAG_ADAPTIVE_MAX_TOP_K", str(json_config.get("rag_adaptive_max_top_k", 8)))),
+        rag_enable_semantic_chunking=_env_bool("RAG_ENABLE_SEMANTIC_CHUNKING", _json_bool(json_config, "rag_enable_semantic_chunking", True)),
+        rag_semantic_chunk_threshold=float(os.getenv("RAG_SEMANTIC_CHUNK_THRESHOLD", str(json_config.get("rag_semantic_chunk_threshold", 0.72)))),
+        rag_enable_semantic_cache=_env_bool("RAG_ENABLE_SEMANTIC_CACHE", _json_bool(json_config, "rag_enable_semantic_cache", True)),
+        rag_semantic_cache_size=int(os.getenv("RAG_SEMANTIC_CACHE_SIZE", str(json_config.get("rag_semantic_cache_size", 256)))),
+        rag_semantic_cache_threshold=float(os.getenv("RAG_SEMANTIC_CACHE_THRESHOLD", str(json_config.get("rag_semantic_cache_threshold", 0.92)))),
+        rag_semantic_cache_ttl=int(os.getenv("RAG_SEMANTIC_CACHE_TTL", str(json_config.get("rag_semantic_cache_ttl", 1800)))),
         model_manifest_path=_resolve_config_path(
             base_dir,
             os.getenv(

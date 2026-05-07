@@ -33,9 +33,11 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.jsjb.unit_classifier.acceptance import build_acceptance_report, format_acceptance_report, write_acceptance_report
 from src.jsjb.core.paths import get_training_reports_dir
 from src.jsjb.unit_classifier.catalog import GENERIC_BAD_UNITS, canonicalize_unit, load_unit_catalog, normalize_unit_text
+from src.jsjb.unit_classifier.hierarchy import UnitHierarchy
 from src.jsjb.unit_classifier.tokenization import chinese_tokenizer
 from src.jsjb.unit_classifier.model import BertCNNAttention
 from src.jsjb.unit_classifier.training.data import TextDataset
+from src.jsjb.unit_classifier.training.class_balance import build_class_weights
 
 
 DEFAULT_CLASSIFIER_DATA_CANDIDATES = [
@@ -135,6 +137,8 @@ class Config:
         self.loss_type = args.loss_type
         self.focal_gamma = args.focal_gamma
         self.rank_penalty = args.rank_penalty
+        self.class_weight_strategy = args.class_weight_strategy
+        self.class_balanced_beta = args.class_balanced_beta
         self.class_weight_power = args.class_weight_power
         self.class_weight_min = args.class_weight_min
         self.class_weight_max = args.class_weight_max
@@ -274,19 +278,15 @@ class DataProcessor:
         print("正在基于训练集计算类别权重...")
         train_labels = train_df["label_id"].values
         observed_classes = np.unique(train_labels)
-        class_weights = compute_class_weight(
-            class_weight="balanced",
-            classes=observed_classes,
-            y=train_labels,
+        self.config.class_weights = build_class_weights(
+            train_labels,
+            num_classes=self.config.num_classes,
+            strategy=self.config.class_weight_strategy,
+            power=self.config.class_weight_power,
+            min_weight=self.config.class_weight_min,
+            max_weight=self.config.class_weight_max,
+            effective_beta=self.config.class_balanced_beta,
         )
-        class_weights = np.power(class_weights, self.config.class_weight_power)
-        class_weights = np.clip(class_weights, self.config.class_weight_min, self.config.class_weight_max)
-
-        full_weights = torch.ones(self.config.num_classes)
-        for cls, weight in zip(observed_classes, class_weights):
-            full_weights[int(cls)] = float(weight)
-
-        self.config.class_weights = full_weights.float()
         print(f"类别权重已生成 (Top 5 权重: {self.config.class_weights[:5]})")
 
         train_tfidf = None
@@ -488,6 +488,8 @@ class BertClassifier:
                 "tfidf_vectorizer": "tfidf_vectorizer.joblib" if self.config.use_tfidf else "",
                 "label_signature": self.config.label_signature,
                 "loss_type": self.config.loss_type,
+                "class_weight_strategy": self.config.class_weight_strategy,
+                "class_balanced_beta": float(self.config.class_balanced_beta),
                 "temperature": self.config.temperature,
                 "temperature_start": self.config.temperature_start,
                 "temperature_end": self.config.temperature_end,
@@ -845,6 +847,8 @@ class BertClassifier:
         print(f"Top-1 Acc: {top1_acc:.4f}")
         print(f"Macro-F1: {macro_f1:.4f}")
         print(f"Weighted-F1: {weighted_f1:.4f}")
+        hierarchy_metrics = UnitHierarchy().metrics(all_labels, all_preds, self.config.id2label)
+        print(f"Coarse Acc: {hierarchy_metrics['coarse_acc']:.4f} | Coarse Lift: {hierarchy_metrics['coarse_lift']:.4f}")
         print(report)
 
         print("\n" + "=" * 50)
@@ -889,6 +893,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="损失函数类型")
     parser.add_argument("--focal-gamma", type=float, default=1.5, help="Focal/RankAware 的 gamma")
     parser.add_argument("--rank-penalty", type=float, default=0.15, help="RankAware Top-K 内样本惩罚系数")
+    parser.add_argument(
+        "--class-weight-strategy",
+        type=str,
+        default="effective_num",
+        choices=["balanced", "effective_num", "none"],
+        help="Class weight strategy: balanced, effective_num, or none.",
+    )
+    parser.add_argument("--class-balanced-beta", type=float, default=0.9999, help="Class-Balanced effective-number beta")
     parser.add_argument("--class-weight-power", type=float, default=0.6, help="类别权重平滑指数")
     parser.add_argument("--class-weight-min", type=float, default=0.5, help="类别权重下限")
     parser.add_argument("--class-weight-max", type=float, default=5.0, help="类别权重上限")

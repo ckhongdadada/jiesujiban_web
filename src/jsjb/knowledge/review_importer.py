@@ -106,10 +106,14 @@ def _import_to_graph(
             {
                 "status": content.get("status", ""),
                 "district": district,
+                "responsible_unit": content.get("responsible_unit", ""),
                 "description": content.get("source_text", ""),
+                "source_text": content.get("source_text", ""),
+                "updated_from": "reviewed_feedback",
             },
         )
         result["created_nodes"].append({"type": "Project", "id": project_id, "name": project_name})
+        _attach_project_context(manager, project_id, project_name, content, district, result)
         return
 
     if fact_type == "demolition_status":
@@ -123,9 +127,12 @@ def _import_to_graph(
                 "demolition_status": content.get("demolition_status", ""),
                 "district": district,
                 "description": content.get("source_text", ""),
+                "source_text": content.get("source_text", ""),
+                "updated_from": "reviewed_feedback",
             },
         )
         result["created_nodes"].append({"type": "Project", "id": project_id, "name": project_name})
+        _attach_project_context(manager, project_id, project_name, content, district, result)
         return
 
     if fact_type in {"responsible_unit", "unit_mapping"}:
@@ -133,8 +140,16 @@ def _import_to_graph(
         unit_name = content.get("unit", content.get("responsible_unit", ""))
         if not project_name or not unit_name:
             raise ValueError("responsible_unit fact missing project or unit")
-        project_id = manager.merge_entity("Project", project_name, {"district": district})
-        org_id = manager.merge_entity("Organization", unit_name, {"district": district})
+        project_id = manager.merge_entity(
+            "Project",
+            project_name,
+            {"district": district, "responsible_unit": unit_name, "updated_from": "reviewed_feedback"},
+        )
+        org_id = manager.merge_entity(
+            "Organization",
+            unit_name,
+            {"district": district, "responsibilities": content.get("source_text", ""), "updated_from": "reviewed_feedback"},
+        )
         manager.create_relationship(org_id, project_id, "RESPONSIBLE_FOR")
         result["created_nodes"].extend(
             [
@@ -143,6 +158,7 @@ def _import_to_graph(
             ]
         )
         result["created_relations"].append({"from": unit_name, "to": project_name, "type": "RESPONSIBLE_FOR"})
+        _attach_project_context(manager, project_id, project_name, content, district, result, include_unit=False)
         return
 
     if fact_type == "public_resource":
@@ -155,8 +171,11 @@ def _import_to_graph(
             {
                 "status": content.get("status", ""),
                 "resource_type": content.get("resource_type", ""),
+                "district": district,
                 "address": content.get("address", ""),
                 "phone": content.get("phone", ""),
+                "source_text": content.get("source_text", ""),
+                "updated_from": "reviewed_feedback",
             },
         )
         result["created_nodes"].append({"type": "Resource", "id": resource_id, "name": resource_name})
@@ -168,3 +187,37 @@ def _import_to_graph(
         return
 
     raise ValueError(f"unsupported fact type: {fact_type}")
+
+
+def _attach_project_context(
+    manager: KnowledgeGraphManager,
+    project_id: str,
+    project_name: str,
+    content: Dict[str, Any],
+    district: str,
+    result: Dict[str, Any],
+    *,
+    include_unit: bool = True,
+) -> None:
+    """Attach standard Project -> Location and Org -> Project context."""
+    if district:
+        location_id = manager.merge_entity(
+            "Location",
+            district,
+            {"district": district, "type": "区县", "updated_from": "reviewed_feedback"},
+        )
+        manager.create_relationship(project_id, location_id, "LOCATED_IN")
+        result["created_nodes"].append({"type": "Location", "id": location_id, "name": district})
+        result["created_relations"].append({"from": project_name, "to": district, "type": "LOCATED_IN"})
+
+    if include_unit:
+        unit_name = content.get("unit") or content.get("responsible_unit")
+        if unit_name:
+            org_id = manager.merge_entity(
+                "Organization",
+                unit_name,
+                {"district": district, "updated_from": "reviewed_feedback"},
+            )
+            manager.create_relationship(org_id, project_id, "RESPONSIBLE_FOR")
+            result["created_nodes"].append({"type": "Organization", "id": org_id, "name": unit_name})
+            result["created_relations"].append({"from": unit_name, "to": project_name, "type": "RESPONSIBLE_FOR"})

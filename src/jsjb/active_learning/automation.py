@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -22,6 +23,7 @@ class TrainingPackageResult:
     data_path: str
     manifest_path: str
     message: str
+    classifier_data_path: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -108,6 +110,7 @@ class ActiveLearningAutomationService:
                 sample_count=len(samples),
                 data_path="",
                 manifest_path="",
+                classifier_data_path="",
                 message=f"可用已标注样本 {len(samples)} 条，少于阈值 {min_samples} 条。",
             )
 
@@ -117,17 +120,31 @@ class ActiveLearningAutomationService:
         output_path.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         data_path = output_path / f"active_learning_training_{timestamp}.jsonl"
+        classifier_data_path = output_path / f"active_learning_classifier_rows_{timestamp}.csv"
         manifest_path = output_path / f"active_learning_training_{timestamp}.manifest.json"
 
         with data_path.open("w", encoding="utf-8") as fp:
             for sample in samples:
                 fp.write(json.dumps(self._training_record(sample), ensure_ascii=False) + "\n")
+        with classifier_data_path.open("w", encoding="utf-8-sig", newline="") as fp:
+            writer = csv.DictWriter(fp, fieldnames=["留言标签", "留言标题", "留言正文", "官方回复单位"])
+            writer.writeheader()
+            for sample in samples:
+                writer.writerow(
+                    {
+                        "留言标签": sample.get("tag", ""),
+                        "留言标题": sample.get("title", ""),
+                        "留言正文": sample.get("body", ""),
+                        "官方回复单位": sample.get("correct_unit", ""),
+                    }
+                )
 
         manifest = {
             "created_at": datetime.now().isoformat(),
             "sample_count": len(samples),
             "unused_only": unused_only,
             "data_path": str(data_path),
+            "classifier_data_path": str(classifier_data_path),
             "source_distribution": self._count(samples, "sample_source"),
             "unit_distribution": self._count(samples, "correct_unit"),
             "district_distribution": self._count(samples, "district"),
@@ -140,6 +157,7 @@ class ActiveLearningAutomationService:
             sample_count=len(samples),
             data_path=str(data_path),
             manifest_path=str(manifest_path),
+            classifier_data_path=str(classifier_data_path),
             message="主动学习增训包已生成。",
         )
 

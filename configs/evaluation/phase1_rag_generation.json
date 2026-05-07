@@ -1,0 +1,21 @@
+{
+  "fixed_eval_set": "data/evaluation/phase1_fixed_cases.jsonl",
+  "output_dir": "outputs/evaluation",
+  "default_api_url": "http://127.0.0.1:5000/api/analyze",
+  "retrieval_top_k": 3,
+  "thresholds": {
+    "min_evidence_coverage": 0.35,
+    "min_retrieval_precision": 0.34,
+    "min_format_score": 0.85
+  },
+  "metrics": [
+    "retrieval_precision_at_k",
+    "retrieval_top1_same_district",
+    "retrieval_topk_any_same_district",
+    "evidence_coverage",
+    "format_compliance",
+    "unit_top1_hit",
+    "unit_top3_hit",
+    "other_district_leak"
+  ]
+}

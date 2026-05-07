@@ -264,6 +264,41 @@ class FeedbackDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reply_error_cases_status ON reply_error_cases(status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reply_error_cases_feedback_id ON reply_error_cases(feedback_id)')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS rag_active_learning_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trace_id TEXT DEFAULT '',
+                query TEXT DEFAULT '',
+                title TEXT DEFAULT '',
+                body TEXT DEFAULT '',
+                district TEXT DEFAULT '',
+                tag TEXT DEFAULT '',
+                unit TEXT DEFAULT '',
+                retrieved_docs TEXT DEFAULT '[]',
+                top1_doc_id TEXT DEFAULT '',
+                top1_score REAL DEFAULT 0,
+                top2_score REAL DEFAULT 0,
+                score_gap REAL DEFAULT 0,
+                uncertainty_score REAL DEFAULT 0,
+                diversity_score REAL DEFAULT 0,
+                risk_score REAL DEFAULT 0,
+                feedback_score REAL DEFAULT 0,
+                badge_lite_score REAL DEFAULT 0,
+                feedback_type TEXT DEFAULT '',
+                feedback_comment TEXT DEFAULT '',
+                selection_reason TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'pending_review',
+                reviewer TEXT DEFAULT '',
+                review_label TEXT DEFAULT '',
+                review_notes TEXT DEFAULT '',
+                reviewed_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rag_al_status ON rag_active_learning_queue(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rag_al_score ON rag_active_learning_queue(badge_lite_score)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_rag_al_trace ON rag_active_learning_queue(trace_id)')
+
         # 创建统计视图
         cursor.execute('''
             CREATE VIEW IF NOT EXISTS feedback_stats AS
@@ -450,6 +485,156 @@ class FeedbackDatabase:
                 }
             )
         return results
+
+    def enqueue_rag_active_learning_candidate(self, candidate: Dict[str, Any]) -> int:
+        """Persist one RAG active-learning candidate for manual review."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO rag_active_learning_queue (
+                trace_id,
+                query,
+                title,
+                body,
+                district,
+                tag,
+                unit,
+                retrieved_docs,
+                top1_doc_id,
+                top1_score,
+                top2_score,
+                score_gap,
+                uncertainty_score,
+                diversity_score,
+                risk_score,
+                feedback_score,
+                badge_lite_score,
+                feedback_type,
+                feedback_comment,
+                selection_reason,
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                candidate.get("trace_id", ""),
+                candidate.get("query", ""),
+                candidate.get("title", ""),
+                candidate.get("body", ""),
+                candidate.get("district", ""),
+                candidate.get("tag", ""),
+                candidate.get("unit", ""),
+                json.dumps(candidate.get("retrieved_docs", []), ensure_ascii=False),
+                candidate.get("top1_doc_id", ""),
+                float(candidate.get("top1_score", 0) or 0),
+                float(candidate.get("top2_score", 0) or 0),
+                float(candidate.get("score_gap", 0) or 0),
+                float(candidate.get("uncertainty_score", 0) or 0),
+                float(candidate.get("diversity_score", 0) or 0),
+                float(candidate.get("risk_score", 0) or 0),
+                float(candidate.get("feedback_score", 0) or 0),
+                float(candidate.get("badge_lite_score", 0) or 0),
+                candidate.get("feedback_type", ""),
+                candidate.get("feedback_comment", ""),
+                json.dumps(candidate.get("selection_reason", []), ensure_ascii=False),
+                candidate.get("status", "pending_review"),
+            ),
+        )
+        candidate_id = cursor.lastrowid
+        conn.commit()
+        return candidate_id
+
+    def list_rag_active_learning_candidates(
+        self,
+        status: str = "pending_review",
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List RAG active-learning review candidates."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT *
+            FROM rag_active_learning_queue
+            WHERE status = ?
+            ORDER BY badge_lite_score DESC, uncertainty_score DESC, created_at DESC
+            LIMIT ?
+            ''',
+            (status, limit),
+        )
+        return [self._decode_rag_active_learning_row(row) for row in cursor.fetchall()]
+
+    def review_rag_active_learning_candidate(
+        self,
+        candidate_id: int,
+        action: str,
+        reviewer: str = "",
+        review_label: str = "",
+        review_notes: str = "",
+    ) -> bool:
+        """Approve/reject/skip one RAG active-learning candidate."""
+        status = {
+            "approve": "approved",
+            "reject": "rejected",
+            "skip": "skipped",
+        }.get(action, action or "reviewed")
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE rag_active_learning_queue
+            SET status = ?,
+                reviewer = ?,
+                review_label = ?,
+                review_notes = ?,
+                reviewed_at = ?
+            WHERE id = ?
+            ''',
+            (status, reviewer, review_label, review_notes, datetime.now().isoformat(), candidate_id),
+        )
+        success = cursor.rowcount > 0
+        conn.commit()
+        return success
+
+    def get_rag_active_learning_stats(self) -> Dict[str, Any]:
+        """Return summary statistics for the RAG active-learning queue."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT status, COUNT(*) AS count
+            FROM rag_active_learning_queue
+            GROUP BY status
+            ORDER BY count DESC
+            '''
+        )
+        by_status = {row["status"]: row["count"] for row in cursor.fetchall()}
+        cursor.execute("SELECT COUNT(*) FROM rag_active_learning_queue")
+        total_count = cursor.fetchone()[0]
+        cursor.execute(
+            '''
+            SELECT AVG(badge_lite_score), AVG(uncertainty_score), AVG(risk_score)
+            FROM rag_active_learning_queue
+            '''
+        )
+        avg_row = cursor.fetchone()
+        return {
+            "total_count": total_count,
+            "by_status": by_status,
+            "pending_review": by_status.get("pending_review", 0),
+            "avg_badge_lite_score": round(float(avg_row[0] or 0), 4),
+            "avg_uncertainty_score": round(float(avg_row[1] or 0), 4),
+            "avg_risk_score": round(float(avg_row[2] or 0), 4),
+        }
+
+    def _decode_rag_active_learning_row(self, row) -> Dict[str, Any]:
+        item = dict(row)
+        for key in ["retrieved_docs", "selection_reason"]:
+            try:
+                item[key] = json.loads(item.get(key) or "[]")
+            except json.JSONDecodeError:
+                item[key] = []
+        return item
 
     def save_feedback_attribution(self, feedback_id: int, attribution: Dict[str, Any]) -> int:
         """Persist automatic attribution that routes feedback into learning queues."""
@@ -896,6 +1081,7 @@ class FeedbackDatabase:
         pending_classifier_candidates = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM reply_error_cases WHERE status = 'pending_review'")
         pending_reply_error_cases = cursor.fetchone()[0]
+        rag_active_learning_stats = self.get_rag_active_learning_stats()
 
         latest_negative = self.search_feedback(is_helpful=False, limit=limit)
         return {
@@ -913,6 +1099,8 @@ class FeedbackDatabase:
             "feedback_attribution_count": attribution_count,
             "pending_classifier_candidate_count": pending_classifier_candidates,
             "pending_reply_error_case_count": pending_reply_error_cases,
+            "rag_active_learning": rag_active_learning_stats,
+            "pending_rag_active_learning_count": rag_active_learning_stats.get("pending_review", 0),
             "latest_negative_feedback": latest_negative,
         }
 

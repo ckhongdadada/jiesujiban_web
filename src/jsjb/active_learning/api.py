@@ -143,6 +143,20 @@ def create_active_learning_blueprint(
         status_code = 200 if result.status == "ok" else 400
         return jsonify(result.to_dict()), status_code
 
+    @bp.route('/classifier-training-data', methods=['POST'])
+    def prepare_classifier_training_data():
+        """Merge confirmed active-learning labels back into classifier training data."""
+        data = request.get_json() or {}
+        try:
+            output_path = incremental_trainer.prepare_training_data(output_path=data.get('output_path'))
+            return jsonify({
+                "status": "ok",
+                "path": output_path,
+                "message": "已生成可直接用于分类增量训练的合并训练集",
+            })
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
     @bp.route('/train', methods=['POST'])
     def trigger_training():
         """触发增量训练"""

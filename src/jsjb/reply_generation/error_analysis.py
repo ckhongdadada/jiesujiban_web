@@ -7,6 +7,7 @@ from dataclasses import asdict
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
+from src.jsjb.reply_generation.atomic_facts import split_reply_to_atomic_facts
 from src.jsjb.reply_generation.fact_extraction import FactExtractor
 from src.jsjb.reply_generation.verification import verify_generated_reply
 
@@ -110,6 +111,8 @@ class ReplyErrorExtractor:
 
         generated_facts = [asdict(item) for item in self.fact_extractor.extract_facts_from_reply(generated_reply)]
         reference_facts = [asdict(item) for item in self.fact_extractor.extract_facts_from_reply(reference_reply)]
+        generated_atomic_facts = split_reply_to_atomic_facts(generated_reply)
+        reference_atomic_facts = split_reply_to_atomic_facts(reference_reply)
 
         errors: List[Dict[str, Any]] = []
         errors.extend(self._detect_format_violations(generated_reply))
@@ -170,6 +173,8 @@ class ReplyErrorExtractor:
             "normalized_reference_reply": normalized_reference,
             "generated_facts": generated_facts,
             "reference_facts": reference_facts,
+            "generated_atomic_facts": generated_atomic_facts,
+            "reference_atomic_facts": reference_atomic_facts,
             "similarity": self._build_similarity(normalized_generated, normalized_reference),
             "verification": verification,
             "quality_dimensions": quality_dimensions,

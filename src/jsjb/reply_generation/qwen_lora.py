@@ -9,6 +9,12 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from src.jsjb.reply_generation.atomic_facts import split_reply_to_atomic_facts
+from src.jsjb.reply_generation.evidence_grounding import (
+    bind_reply_to_evidence,
+    build_evidence_plan,
+    format_evidence_plan_for_prompt,
+)
 from src.jsjb.reply_generation.verification import verify_generated_reply
 from src.jsjb.core.artifacts import inspect_generator_artifacts
 from src.jsjb.core.logging import StructuredLogger
@@ -288,11 +294,71 @@ def _build_rag_block(retrieval_hits: list[dict[str, Any]]) -> str:
             status_parts.append(f"责任单位:{hit['responsible_unit']}")
 
         status_text = f" | {' | '.join(status_parts)}" if status_parts else ""
+        child_snippet = hit.get("child_snippet") or hit.get("snippet", "")
+        parent_context = hit.get("parent_context", "")
+        if parent_context and parent_context != child_snippet:
+            evidence_text = f"命中片段:{child_snippet} | 父文档上下文:{parent_context}"
+        else:
+            evidence_text = child_snippet
         rag_lines.append(
             f"[{idx}] {hit.get('title', '未命名材料')} | 类型:{hit.get('doc_type', '参考材料')} | "
-            f"区域:{hit.get('district') or '全市'}{status_text} | 摘要:{hit.get('snippet', '')}"
+            f"区域:{hit.get('district') or '全市'}{status_text} | 摘要:{evidence_text}"
         )
     return "\n".join(rag_lines)
+
+
+def _attach_evidence_grounding(
+    verification_result: dict[str, Any] | None,
+    evidence_plan: dict[str, Any],
+    grounding_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach sentence-level evidence grounding to the verification payload."""
+    if verification_result is None:
+        verification_result = {
+            "is_valid": True,
+            "warnings": [],
+            "high_risk": False,
+            "needs_review": False,
+            "severity_counts": {"high": 0, "medium": 0, "low": 0},
+            "summary": "验证通过，未发现事实性问题",
+        }
+
+    warnings = list(verification_result.get("warnings") or [])
+    severity_counts = dict(verification_result.get("severity_counts") or {"high": 0, "medium": 0, "low": 0})
+    for unsupported in grounding_report.get("unsupported_sentences", []):
+        warnings.append(
+            {
+                "warning_type": "unsupported_factual_sentence",
+                "message": "生成回复存在无法绑定到检索证据的事实性句子。",
+                "context": unsupported.get("sentence", ""),
+                "severity": "medium",
+                "suggestion": "请核实该句是否有真实依据；若无依据，应改为保守办理表述或人工复核。",
+                "evidence_ids": unsupported.get("evidence_ids", []),
+                "support_score": unsupported.get("support_score", 0.0),
+            }
+        )
+        severity_counts["medium"] = int(severity_counts.get("medium", 0)) + 1
+
+    needs_review = bool(verification_result.get("needs_review")) or bool(grounding_report.get("needs_review"))
+    verification_result.update(
+        {
+            "warnings": warnings,
+            "severity_counts": severity_counts,
+            "needs_review": needs_review,
+            "is_valid": bool(verification_result.get("is_valid", True)) and not needs_review,
+            "evidence_plan": evidence_plan,
+            "evidence_bindings": grounding_report.get("bindings", []),
+            "evidence_coverage_rate": grounding_report.get("coverage_rate", 1.0),
+            "unsupported_sentences": grounding_report.get("unsupported_sentences", []),
+            "grounding_summary": grounding_report.get("summary", ""),
+        }
+    )
+
+    if grounding_report.get("needs_review"):
+        base_summary = verification_result.get("summary") or ""
+        grounding_summary = grounding_report.get("summary", "")
+        verification_result["summary"] = "；".join(part for part in [base_summary, grounding_summary] if part)
+    return verification_result
 
 
 def _grounding_strength(retrieval_hits: list[dict[str, Any]], district: str | None = None) -> str:
@@ -367,27 +433,45 @@ def generate_reply_with_context(
     if enable_verification is None:
         enable_verification = ENABLE_FACT_VERIFICATION
 
+    evidence_plan = build_evidence_plan(retrieval_hits, unit=unit, location_result=location_result)
+
     if not load_generator(
         base_model_path,
         lora_path,
         draft_model_path,
         enable_assisted_decoding=enable_assisted_decoding,
     ):
+        reply = fallback_generate_reply(tag, title, body, unit, location_result, retrieval_hits)
+        grounding_report = bind_reply_to_evidence(reply, evidence_plan)
         result = {
-            "reply": fallback_generate_reply(tag, title, body, unit, location_result, retrieval_hits),
-            "verification": None,
+            "reply": reply,
+            "verification": _attach_evidence_grounding(None, evidence_plan, grounding_report),
             "fallback": True,
+            "evidence_plan": evidence_plan,
+            "grounding_report": grounding_report,
+            "atomic_facts": split_reply_to_atomic_facts(reply, evidence_plan),
         }
         return result if return_dict else result["reply"]
 
     district, location_block = _build_location_block(location_result)
     rag_block = _build_rag_block(retrieval_hits)
+    evidence_plan_block = format_evidence_plan_for_prompt(evidence_plan)
     street = location_result.get("street") or location_result.get("subdistrict") or ""
     grounding = _grounding_strength(retrieval_hits, district=district)
 
     if grounding in {"none", "weak"}:
         reply = conservative_generate_reply(tag, title, body, unit, location_result)
-        result = {"reply": reply, "verification": None, "fallback": True, "grounding": grounding}
+        grounding_report = bind_reply_to_evidence(reply, evidence_plan)
+        verification_result = _attach_evidence_grounding(None, evidence_plan, grounding_report)
+        result = {
+            "reply": reply,
+            "verification": verification_result,
+            "fallback": True,
+            "grounding": grounding,
+            "evidence_plan": evidence_plan,
+            "grounding_report": grounding_report,
+            "atomic_facts": split_reply_to_atomic_facts(reply, evidence_plan),
+        }
         return result if return_dict else result["reply"]
 
     user_content = (
@@ -401,6 +485,7 @@ def generate_reply_with_context(
         f"- 行政区: {district}\n"
         f"- 识别明细:\n{location_block}\n\n"
         f"证据强度: {grounding}\n\n"
+        f"{evidence_plan_block}\n\n"
         f"检索到的政策/案例上下文:\n{rag_block}"
     )
 
@@ -415,6 +500,9 @@ def generate_reply_with_context(
         "5. 如果上下文没有明确给出项目名称、物业状态、处理时限、责任细节，不得自行补充具体事实。\n"
         "6. 当证据强度为 weak 时，只能输出保守表述，如“已转请相关单位核实处理、将督促整改、将反馈结果”，"
         "不得写成已经现场核实出的具体结论。\n\n"
+        "7. 必须遵守“证据计划”：每个具体事实都应能对应到证据计划中的输入字段或证据项；"
+        "如果找不到证据，只能写成待核实、将督促、将反馈等保守表述。\n"
+        "8. 证据编号仅供内部约束使用，不要在回复正文中输出 E1/E2/F1 等编号。\n\n"
         "【输出要求】\n"
         "只输出回复正文，不要称呼、落款和日期，控制在220字以内。"
     )
@@ -432,7 +520,15 @@ def generate_reply_with_context(
     )
     if not reply:
         reply = fallback_generate_reply(tag, title, body, unit, location_result, retrieval_hits)
-        result = {"reply": reply, "verification": None, "fallback": True}
+        grounding_report = bind_reply_to_evidence(reply, evidence_plan)
+        result = {
+            "reply": reply,
+            "verification": _attach_evidence_grounding(None, evidence_plan, grounding_report),
+            "fallback": True,
+            "evidence_plan": evidence_plan,
+            "grounding_report": grounding_report,
+            "atomic_facts": split_reply_to_atomic_facts(reply, evidence_plan),
+        }
         return result if return_dict else result["reply"]
 
     verification_result = None
@@ -456,7 +552,25 @@ def generate_reply_with_context(
             _logger.error(f"[事实验证] 验证失败: {exc}")
             verification_result = {"error": str(exc)}
 
-    result = {"reply": reply, "verification": verification_result, "fallback": False}
+    grounding_report = bind_reply_to_evidence(reply, evidence_plan)
+    verification_result = _attach_evidence_grounding(verification_result, evidence_plan, grounding_report)
+    if verification_result.get("needs_review") and grounding_report.get("needs_review"):
+        _logger.warning(
+            "证据绑定发现无依据事实句",
+            extra={
+                "unsupported_count": len(grounding_report.get("unsupported_sentences", [])),
+                "coverage_rate": grounding_report.get("coverage_rate"),
+            },
+        )
+
+    result = {
+        "reply": reply,
+        "verification": verification_result,
+        "fallback": False,
+        "evidence_plan": evidence_plan,
+        "grounding_report": grounding_report,
+        "atomic_facts": split_reply_to_atomic_facts(reply, evidence_plan),
+    }
     return result if return_dict else result["reply"]
 
 

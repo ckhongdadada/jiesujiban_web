@@ -28,6 +28,18 @@ def get_reports_dir() -> Path:
     return get_data_root() / "reports"
 
 
+def get_outputs_dir() -> Path:
+    return get_project_root() / "outputs"
+
+
+def get_evaluation_data_dir() -> Path:
+    return get_data_root() / "evaluation"
+
+
+def get_evaluation_outputs_dir() -> Path:
+    return get_outputs_dir() / "evaluation"
+
+
 def get_universe_dir() -> Path:
     return get_data_root() / "universe"
 
@@ -51,6 +63,8 @@ def ensure_standard_data_layout() -> None:
         get_reports_dir(),
         get_reports_dir() / "training",
         get_reports_dir() / "crawl",
+        get_evaluation_data_dir(),
+        get_evaluation_outputs_dir(),
         get_universe_dir(),
         get_universe_dir() / "v2",
     ]

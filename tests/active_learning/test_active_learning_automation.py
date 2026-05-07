@@ -64,5 +64,10 @@ def test_prepare_training_package_exports_annotated_samples(tmp_path):
     assert result.sample_count == 1
     records = [json.loads(line) for line in open(result.data_path, encoding="utf-8") if line.strip()]
     assert records[0]["unit"] == "城管委"
+    assert result.classifier_data_path
+    classifier_csv = open(result.classifier_data_path, encoding="utf-8-sig").read()
+    assert "官方回复单位" in classifier_csv
+    assert "城管委" in classifier_csv
     manifest = json.loads(open(result.manifest_path, encoding="utf-8").read())
     assert manifest["sample_count"] == 1
+    assert manifest["classifier_data_path"] == result.classifier_data_path

@@ -33,6 +33,7 @@ from src.jsjb.reply_generation.service import (
     generate_reply_with_context,
 )
 from src.jsjb.reply_generation.qwen_lora import _grounding_strength
+from src.jsjb.reply_generation.atomic_facts import split_reply_to_atomic_facts
 from src.jsjb.core.model_registry import model_manager, init_model_preloading
 from src.jsjb.core.logging import StructuredLogger, setup_logging
 from src.jsjb.core.validation import (
@@ -42,8 +43,10 @@ from src.jsjb.core.validation import (
 )
 from src.jsjb.web.routes import (
     register_analysis_routes,
+    register_evaluation_routes,
     register_feedback_routes,
     register_knowledge_review_routes,
+    register_rag_active_learning_routes,
     register_system_status_routes,
 )
 from src.jsjb.feedback import get_feedback_database
@@ -59,6 +62,7 @@ from src.jsjb.active_learning.api import (
     add_sample_collection_middleware,
 )
 from src.jsjb.knowledge import KnowledgeGraphManager, GraphQueryEngine, import_reviewed_fact
+from src.jsjb.retrieval.active_learning import RAGActiveLearningConfig, RAGActiveLearningSampler
 
 RATE_LIMIT_LOCK = threading.Lock()
 IP_REQUEST_TIMES = {}
@@ -85,6 +89,13 @@ def create_app():
     logger.info("初始化用户反馈数据库...")
     feedback_db = get_feedback_database()
     reply_error_extractor = ReplyErrorExtractor()
+    rag_active_learning_sampler = RAGActiveLearningSampler(
+        RAGActiveLearningConfig(
+            enabled=config.rag_active_learning_enabled,
+            score_threshold=config.rag_active_learning_score_threshold,
+            min_uncertainty=config.rag_active_learning_min_uncertainty,
+        )
+    )
     logger.info("用户反馈数据库就绪")
     
     logger.info("开始预加载模型...")
@@ -249,6 +260,17 @@ def create_app():
                         multi_query_count=config.rag_multi_query_count,
                         dense_weight=config.rag_dense_weight,
                         sparse_weight=config.rag_sparse_weight,
+                        enable_bm25=config.rag_enable_bm25,
+                        bm25_weight=config.rag_bm25_weight,
+                        tfidf_weight=config.rag_tfidf_weight,
+                        enable_hyde=config.rag_enable_hyde,
+                        hyde_trigger_threshold=config.rag_hyde_trigger_threshold,
+                        hyde_max_queries=config.rag_hyde_max_queries,
+                        reranker_model_name=config.rag_reranker_model_name,
+                        reranker_model_path=config.rag_reranker_model_path,
+                        reranker_weight=config.rag_reranker_weight,
+                        enable_relevance_scorer=config.rag_enable_relevance_scorer,
+                        relevance_weight=config.rag_relevance_weight,
                         enable_chunking=config.rag_enable_chunking,
                         chunk_size=config.rag_chunk_size,
                         chunk_overlap=config.rag_chunk_overlap,
@@ -256,6 +278,15 @@ def create_app():
                         enable_graph_augment=config.rag_enable_graph_augment,
                         enable_feedback_boost=config.rag_enable_feedback_boost,
                         enable_post_processing=config.rag_enable_post_processing,
+                        enable_parent_child=config.rag_enable_parent_child,
+                        enable_adaptive_retrieval=config.rag_enable_adaptive_retrieval,
+                        adaptive_max_top_k=config.rag_adaptive_max_top_k,
+                        enable_semantic_chunking=config.rag_enable_semantic_chunking,
+                        semantic_chunk_threshold=config.rag_semantic_chunk_threshold,
+                        enable_semantic_cache=config.rag_enable_semantic_cache,
+                        semantic_cache_size=config.rag_semantic_cache_size,
+                        semantic_cache_threshold=config.rag_semantic_cache_threshold,
+                        semantic_cache_ttl=config.rag_semantic_cache_ttl,
                         graph_manager=(_components.get("knowledge_graph") or {}).get("manager"),
                     )
                 elif hasattr(_components["rag"], "attach_graph_manager"):
@@ -371,6 +402,22 @@ def create_app():
             "backend": getattr(rag, "active_backend", getattr(rag, "backend", config.rag_backend)) if rag is not None else config.rag_backend,
             "doc_count": len(getattr(rag, "docs", []) or []) if rag is not None else 0,
             "chunk_count": len(getattr(rag, "chunks", []) or []) if rag is not None else 0,
+            "parent_child_enabled": bool(getattr(rag, "enable_parent_child", config.rag_enable_parent_child)) if rag is not None else bool(config.rag_enable_parent_child),
+            "adaptive_retrieval_enabled": bool(getattr(rag, "enable_adaptive_retrieval", config.rag_enable_adaptive_retrieval)) if rag is not None else bool(config.rag_enable_adaptive_retrieval),
+            "adaptive_max_top_k": int(getattr(rag, "adaptive_max_top_k", config.rag_adaptive_max_top_k)) if rag is not None else int(config.rag_adaptive_max_top_k),
+            "semantic_chunking_enabled": bool(getattr(rag, "enable_semantic_chunking", config.rag_enable_semantic_chunking)) if rag is not None else bool(config.rag_enable_semantic_chunking),
+            "semantic_chunk_threshold": float(getattr(rag, "semantic_chunk_threshold", config.rag_semantic_chunk_threshold)) if rag is not None else float(config.rag_semantic_chunk_threshold),
+            "semantic_cache_enabled": bool(getattr(rag, "enable_semantic_cache", config.rag_enable_semantic_cache)) if rag is not None else bool(config.rag_enable_semantic_cache),
+            "semantic_cache": getattr(rag, "_semantic_cache", None).stats() if rag is not None and getattr(rag, "_semantic_cache", None) is not None else {},
+            "bm25_enabled": bool(getattr(rag, "enable_bm25", config.rag_enable_bm25)) if rag is not None else bool(config.rag_enable_bm25),
+            "bm25_index_available": bool(getattr(rag, "bm25_index", None) is not None) if rag is not None else False,
+            "bm25_weight": float(getattr(rag, "bm25_weight", config.rag_bm25_weight)) if rag is not None else float(config.rag_bm25_weight),
+            "tfidf_weight": float(getattr(rag, "tfidf_weight", config.rag_tfidf_weight)) if rag is not None else float(config.rag_tfidf_weight),
+            "hyde_enabled": bool(getattr(rag, "enable_hyde", config.rag_enable_hyde)) if rag is not None else bool(config.rag_enable_hyde),
+            "hyde_trigger_threshold": float(getattr(rag, "hyde_trigger_threshold", config.rag_hyde_trigger_threshold)) if rag is not None else float(config.rag_hyde_trigger_threshold),
+            "relevance_scorer_enabled": bool(getattr(rag, "enable_relevance_scorer", config.rag_enable_relevance_scorer)) if rag is not None else bool(config.rag_enable_relevance_scorer),
+            "relevance_weight": float(getattr(rag, "relevance_weight", config.rag_relevance_weight)) if rag is not None else float(config.rag_relevance_weight),
+            "reranker_status": getattr(getattr(rag, "_reranker", None), "status", lambda: {})() if rag is not None else {},
             "query_rewrite_enabled": bool(getattr(rag, "enable_query_rewrite", config.rag_enable_query_rewrite)) if rag is not None else bool(config.rag_enable_query_rewrite),
             "feedback_boost_enabled": bool(getattr(rag, "enable_feedback_boost", config.rag_enable_feedback_boost)) if rag is not None else bool(config.rag_enable_feedback_boost),
             "graph_augment_enabled": bool(getattr(rag, "enable_graph_augment", config.rag_enable_graph_augment)) if rag is not None else bool(config.rag_enable_graph_augment),
@@ -442,12 +489,20 @@ def create_app():
                 "pending_classifier_candidates": feedback_dashboard.get("pending_classifier_candidate_count", 0),
                 "pending_reply_error_cases": feedback_dashboard.get("pending_reply_error_case_count", 0),
                 "pending_kg_facts": feedback_dashboard.get("pending_kg_fact_count", 0),
+                "rag_active_learning": feedback_dashboard.get("rag_active_learning", {}),
             },
             "model_manifest": health["model_manifest"],
             "model_manifest_strict": health["model_manifest_strict"],
         }
 
     register_system_status_routes(app, build_system_status_snapshot=build_system_status_snapshot)
+    register_evaluation_routes(
+        app,
+        ensure_components=init_components,
+        get_rag=lambda: _components.get("rag"),
+        logger=logger,
+    )
+    register_rag_active_learning_routes(app, feedback_db=feedback_db, logger=logger)
 
     @app.route("/api/rag/reload", methods=["POST"])
     def rag_reload():
@@ -533,6 +588,9 @@ def create_app():
             knowledge_graph = query_knowledge_graph(location, primary_unit)
 
             generation_start = time.time()
+            evidence_plan = None
+            grounding_report = None
+            atomic_facts = []
             if docs:
                 gen_result = generate_reply_with_context(
                     tag=tag,
@@ -552,6 +610,9 @@ def create_app():
                 )
                 reply = gen_result.get("reply", "")
                 verification = gen_result.get("verification")
+                evidence_plan = gen_result.get("evidence_plan")
+                grounding_report = gen_result.get("grounding_report")
+                atomic_facts = gen_result.get("atomic_facts", [])
             else:
                 reply = generate_simple_reply(
                     tag=tag,
@@ -567,6 +628,7 @@ def create_app():
                     temperature=config.generation_temperature,
                 )
                 verification = None
+                atomic_facts = split_reply_to_atomic_facts(reply)
             generation_time = time.time() - generation_start
             logger.info(f"回复生成完成，耗时: {generation_time:.2f}秒")
 
@@ -596,6 +658,31 @@ def create_app():
                     "unit": primary_unit,
                 })
 
+            rag_active_learning_candidate = rag_active_learning_sampler.build_candidate(
+                trace_id=trace_id,
+                query=f"{title} {body}",
+                title=title,
+                body=body,
+                district=location.get("district", ""),
+                tag=tag,
+                unit=primary_unit,
+                retrieval_hits=docs,
+                evidence_strength=grounding,
+                verification=verification,
+            )
+            rag_active_learning_candidate_id = None
+            if rag_active_learning_sampler.should_enqueue(rag_active_learning_candidate):
+                try:
+                    rag_active_learning_candidate_id = feedback_db.enqueue_rag_active_learning_candidate(
+                        rag_active_learning_candidate
+                    )
+                    logger.info(
+                        f"[rag_active_learning] queued candidate id={rag_active_learning_candidate_id}, "
+                        f"score={rag_active_learning_candidate.get('badge_lite_score')}"
+                    )
+                except Exception as exc:
+                    logger.warning(f"[rag_active_learning] enqueue failed: {exc}")
+
             response_data = {
                 "status": "ok",
                 "trace_id": trace_id,
@@ -613,7 +700,21 @@ def create_app():
                 "reply": reply,
                 "reply_mode": reply_mode,
                 "verification": verification,
+                "generation_evidence": {
+                    "evidence_plan": evidence_plan,
+                    "grounding_report": grounding_report,
+                    "atomic_facts": atomic_facts,
+                    "atomic_fact_count": len(atomic_facts),
+                    "coverage_rate": (grounding_report or {}).get("coverage_rate"),
+                    "unsupported_count": len((grounding_report or {}).get("unsupported_sentences", [])),
+                },
                 "needs_review": bool(verification and verification.get("needs_review")),
+                "rag_active_learning": {
+                    "queued": rag_active_learning_candidate_id is not None,
+                    "candidate_id": rag_active_learning_candidate_id,
+                    "badge_lite_score": rag_active_learning_candidate.get("badge_lite_score"),
+                    "selection_reason": rag_active_learning_candidate.get("selection_reason", []),
+                },
                 "processing_time": {
                     "total": round(total_time, 3),
                     "location": round(location_time, 3),

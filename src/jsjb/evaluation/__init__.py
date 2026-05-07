@@ -11,6 +11,12 @@ from src.jsjb.evaluation.reply_quality import (
     compute_bleu,
     compute_rouge,
 )
+from src.jsjb.evaluation.rag_generation import (
+    Phase1EvaluationConfig,
+    Phase1RagGenerationEvaluator,
+    read_phase1_cases,
+    write_phase1_outputs,
+)
 
 __all__ = [
     "BatchQualityEvaluator",
@@ -20,4 +26,8 @@ __all__ = [
     "ReplyQualityEvaluator",
     "compute_bleu",
     "compute_rouge",
+    "Phase1EvaluationConfig",
+    "Phase1RagGenerationEvaluator",
+    "read_phase1_cases",
+    "write_phase1_outputs",
 ]

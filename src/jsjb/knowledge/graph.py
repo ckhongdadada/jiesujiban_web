@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
+
+from src.jsjb.knowledge.schema import canonical_entity_type, canonical_relation_type, normalize_properties
 
 try:
     from neo4j import GraphDatabase
@@ -29,6 +32,7 @@ class InMemoryGraph:
         
     def add_node(self, node_type: str, properties: Dict) -> str:
         """添加节点"""
+        node_type = canonical_entity_type(node_type)
         node_id = f"{node_type}_{self.node_counter}"
         self.node_counter += 1
         self.nodes[node_id] = {
@@ -40,16 +44,24 @@ class InMemoryGraph:
     
     def add_edge(self, from_id: str, to_id: str, edge_type: str, properties: Dict = None):
         """添加边"""
+        edge_type = canonical_relation_type(edge_type)
+        properties = properties or {}
+        for edge in self.edges:
+            if edge["from"] == from_id and edge["to"] == to_id and edge["type"] == edge_type:
+                edge["properties"].update(properties)
+                edge["updated_at"] = datetime.now().isoformat()
+                return
         self.edges.append({
             "from": from_id,
             "to": to_id,
             "type": edge_type,
-            "properties": properties or {},
+            "properties": properties,
             "created_at": datetime.now().isoformat()
         })
     
     def find_node(self, node_type: str, **filters) -> List[str]:
         """查找节点"""
+        node_type = canonical_entity_type(node_type)
         results = []
         for node_id, node_data in self.nodes.items():
             if node_data["type"] != node_type:
@@ -69,11 +81,17 @@ class InMemoryGraph:
     
     def get_neighbors(self, node_id: str, edge_type: str = None) -> List[Tuple[str, str, Dict]]:
         """获取邻居节点"""
+        edge_type = canonical_relation_type(edge_type) if edge_type else None
         neighbors = []
         for edge in self.edges:
             if edge["from"] == node_id:
                 if edge_type is None or edge["type"] == edge_type:
                     neighbors.append((edge["to"], edge["type"], edge["properties"]))
+            elif edge["to"] == node_id:
+                if edge_type is None or edge["type"] == edge_type:
+                    props = dict(edge["properties"])
+                    props["_direction"] = "reverse"
+                    neighbors.append((edge["from"], edge["type"], props))
         return neighbors
     
     def save_to_file(self, filepath: str):
@@ -222,6 +240,7 @@ class KnowledgeGraphManager:
         properties: Dict = None
     ):
         """创建关系"""
+        rel_type = canonical_relation_type(rel_type)
         if self.use_neo4j:
             self._neo4j_create_relationship(from_id, to_id, rel_type, properties or {})
         else:
@@ -547,8 +566,8 @@ class KnowledgeGraphManager:
         Returns:
             实体ID
         """
-        properties = properties or {}
-        properties["name"] = name
+        entity_type = canonical_entity_type(entity_type)
+        properties = normalize_properties(entity_type, name, properties)
         
         if self.use_neo4j:
             return self._neo4j_merge_node(entity_type, properties)
@@ -560,6 +579,169 @@ class KnowledgeGraphManager:
                 return node_id
             else:
                 return self.graph.add_node(entity_type, properties)
+
+    def search_nodes(
+        self,
+        query: str,
+        *,
+        district: str = "",
+        entity_types: List[str] | None = None,
+        limit: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Search graph nodes by lexical overlap for GraphRAG retrieval."""
+        query = str(query or "")
+        if not query.strip():
+            return []
+        types = [canonical_entity_type(t) for t in entity_types] if entity_types else []
+        if self.use_neo4j:
+            return self._neo4j_search_nodes(query, district=district, entity_types=types, limit=limit)
+
+        query_terms = self._term_set(query)
+        results: List[Dict[str, Any]] = []
+        for node_id, node_data in self.graph.nodes.items():
+            node_type = node_data.get("type", "")
+            if types and node_type not in types:
+                continue
+            props = node_data.get("properties", {})
+            node_district = str(props.get("district", ""))
+            if district and node_district and node_district not in {district, "北京市", "全市"}:
+                district_factor = 0.6
+            else:
+                district_factor = 1.0
+
+            text = " ".join(str(v) for v in props.values() if v)
+            terms = self._term_set(text)
+            overlap = query_terms & terms
+            name = str(props.get("name", ""))
+            score = 0.0
+            if name and (name in query or query in name):
+                score += 0.75
+            score += min(len(overlap) * 0.08, 0.4)
+            if district and node_district == district:
+                score += 0.12
+            if score <= 0:
+                continue
+            results.append(
+                {
+                    "id": node_id,
+                    "type": node_type,
+                    "properties": props,
+                    "score": round(score * district_factor, 4),
+                    "matched_terms": sorted(overlap)[:12],
+                }
+            )
+
+        results.sort(key=lambda item: item["score"], reverse=True)
+        return results[:limit]
+
+    def build_community_summary(
+        self,
+        query: str,
+        *,
+        district: str = "",
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        """Build a compact community summary around matched graph nodes."""
+        seeds = self.search_nodes(query, district=district, limit=limit)
+        if not seeds:
+            return {"summary": "", "nodes": [], "relations": [], "score": 0.0}
+
+        relations: List[Dict[str, Any]] = []
+        seen_nodes = {item["id"] for item in seeds}
+        if not self.use_neo4j:
+            for item in seeds:
+                for neighbor_id, rel_type, rel_props in self.graph.get_neighbors(item["id"]):
+                    neighbor = self.graph.get_node(neighbor_id)
+                    if not neighbor:
+                        continue
+                    seen_nodes.add(neighbor_id)
+                    relations.append(
+                        {
+                            "from": item["id"],
+                            "to": neighbor_id,
+                            "type": rel_type,
+                            "properties": rel_props,
+                            "neighbor": neighbor,
+                        }
+                    )
+                    if len(relations) >= limit * 3:
+                        break
+
+        node_lines = []
+        for item in seeds:
+            props = item["properties"]
+            fields = []
+            for key in ("status", "demolition_status", "district", "responsible_unit", "resource_type"):
+                if props.get(key):
+                    fields.append(f"{key}:{props[key]}")
+            node_lines.append(f"{item['type']}:{props.get('name', '')}" + (f" ({' | '.join(fields)})" if fields else ""))
+
+        rel_lines = []
+        for rel in relations[: limit * 2]:
+            neighbor_props = rel.get("neighbor", {}).get("properties", {})
+            rel_lines.append(f"{rel['type']} -> {neighbor_props.get('name', rel['to'])}")
+
+        summary_parts = []
+        if node_lines:
+            summary_parts.append("相关实体：" + "；".join(node_lines[:limit]))
+        if rel_lines:
+            summary_parts.append("关联关系：" + "；".join(rel_lines[: limit * 2]))
+        return {
+            "summary": "\n".join(summary_parts),
+            "nodes": seeds,
+            "relations": relations,
+            "score": round(max(item["score"] for item in seeds), 4),
+            "node_count": len(seen_nodes),
+            "relation_count": len(relations),
+        }
+
+    @staticmethod
+    def _term_set(text: str) -> set[str]:
+        terms: set[str] = set()
+        for token in re.findall(r"[A-Za-z0-9_.-]+|[\u4e00-\u9fa5]{2,}", str(text or "")):
+            token = token.strip()
+            if not token:
+                continue
+            if re.fullmatch(r"[\u4e00-\u9fa5]{2,}", token):
+                for n in (2, 3, 4):
+                    if len(token) >= n:
+                        for i in range(len(token) - n + 1):
+                            terms.add(token[i : i + n])
+            else:
+                terms.add(token.lower())
+        return terms
+
+    def _neo4j_search_nodes(
+        self,
+        query: str,
+        *,
+        district: str = "",
+        entity_types: List[str] | None = None,
+        limit: int = 8,
+    ) -> List[Dict[str, Any]]:
+        labels = entity_types or ["Project", "Organization", "Location", "Resource", "Fact"]
+        results: List[Dict[str, Any]] = []
+        for label in labels:
+            with self.driver.session() as session:
+                cypher = f"""
+                MATCH (n:{label})
+                WHERE any(value IN [n.name, n.description, n.source_text, n.district, n.responsible_unit]
+                          WHERE value IS NOT NULL AND $query CONTAINS toString(value))
+                   OR any(value IN [n.name, n.description, n.source_text, n.district, n.responsible_unit]
+                          WHERE value IS NOT NULL AND toString(value) CONTAINS $query)
+                RETURN id(n) as id, n
+                LIMIT $limit
+                """
+                for record in session.run(cypher, query=query, limit=limit):
+                    props = dict(record["n"])
+                    node_district = props.get("district", "")
+                    if district and node_district and node_district not in {district, "北京市", "全市"}:
+                        score = 0.45
+                    else:
+                        score = 0.7
+                    results.append({"id": str(record["id"]), "type": label, "properties": props, "score": score})
+        results.sort(key=lambda item: item["score"], reverse=True)
+        return results[:limit]
     
     def _neo4j_merge_node(self, label: str, properties: Dict) -> str:
         """Neo4j合并节点"""
